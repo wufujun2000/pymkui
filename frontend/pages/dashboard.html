@@ -1,0 +1,89 @@
+<div class="space-y-6">
+    <!-- 统计卡片 -->
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <div class="bg-gradient-primary rounded-xl p-6 shadow-lg">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-white/80 text-sm font-semibold">在线流数</p>
+                    <h3 class="text-2xl font-bold text-white mt-1" id="streamCount">0</h3>
+                </div>
+                <div class="bg-white/20 p-3 rounded-full">
+                    <i class="fa fa-video-camera text-white text-xl"></i>
+                </div>
+            </div>
+        </div>
+        <div class="bg-gradient-secondary rounded-xl p-6 shadow-lg">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-white/80 text-sm font-semibold">当前观众</p>
+                    <h3 class="text-2xl font-bold text-white mt-1" id="viewerCount">0</h3>
+                </div>
+                <div class="bg-white/20 p-3 rounded-full">
+                    <i class="fa fa-users text-white text-xl"></i>
+                </div>
+            </div>
+        </div>
+        <div class="bg-gradient-accent rounded-xl p-6 shadow-lg">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-white/80 text-sm font-semibold">流量统计</p>
+                    <h3 class="text-2xl font-bold text-white mt-1" id="trafficCount">-</h3>
+                </div>
+                <div class="bg-white/20 p-3 rounded-full">
+                    <i class="fa fa-exchange text-white text-xl"></i>
+                </div>
+            </div>
+        </div>
+        <div class="bg-gradient-success rounded-xl p-6 shadow-lg">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-white/80 text-sm font-semibold">API版本</p>
+                    <h3 class="text-2xl font-bold text-white mt-1" id="apiVersion">v1.0</h3>
+                </div>
+                <div class="bg-white/20 p-3 rounded-full">
+                    <i class="fa fa-code text-white text-xl"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 图表区域 -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- 对象个数统计 -->
+        <div class="bg-white/5 rounded-xl p-6 shadow-lg border border-white/10">
+            <h3 class="text-lg font-semibold text-white mb-4">对象个数统计</h3>
+            <div class="h-80">
+                <canvas id="statisticChart"></canvas>
+            </div>
+        </div>
+
+        <!-- 线程负载 -->
+        <div class="bg-white/5 rounded-xl p-6 shadow-lg border border-white/10">
+            <h3 class="text-lg font-semibold text-white mb-4">线程负载</h3>
+            <div class="h-80">
+                <canvas id="threadsLoadChart"></canvas>
+            </div>
+        </div>
+
+        <!-- 工作线程负载 -->
+        <div class="bg-white/5 rounded-xl p-6 shadow-lg border border-white/10">
+            <h3 class="text-lg font-semibold text-white mb-4">工作线程负载</h3>
+            <div class="h-80">
+                <canvas id="workThreadsLoadChart"></canvas>
+            </div>
+        </div>
+
+        <!-- 系统资源 -->
+        <div class="bg-white/5 rounded-xl p-6 shadow-lg border border-white/10">
+            <h3 class="text-lg font-semibold text-white mb-4">系统资源</h3>
+            <div class="space-y-4">
+                <div class="h-40">
+                    <canvas id="cpuChart"></canvas>
+                </div>
+                <div class="h-40">
+                    <canvas id="memoryChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>登录 - ZLMediaKit 管理系统</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#6366f1',
+                        secondary: '#8b5cf6',
+                        accent: '#ec4899',
+                        dark: '#1e293b',
+                        light: '#f8fafc',
+                    },
+                    fontFamily: {
+                        inter: ['Inter', 'system-ui', 'sans-serif'],
+                    },
+                    boxShadow: {
+                        'neon': '0 0 15px rgba(99, 102, 241, 0.5)',
+                        'neon-lg': '0 0 25px rgba(99, 102, 241, 0.6)',
+                    }
+                }
+            }
+        }
+    </script>
+    <style type="text/tailwindcss">
+        @layer utilities {
+            .content-auto {
+                content-visibility: auto;
+            }
+            .bg-gradient-primary {
+                background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+            }
+            .bg-gradient-secondary {
+                background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+            }
+            .bg-gradient-accent {
+                background: linear-gradient(135deg, #ec4899 0%, #f43f5e 100%);
+            }
+            .text-gradient {
+                background-clip: text;
+                -webkit-background-clip: text;
+                color: transparent;
+                background-image: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+            }
+            .animate-float {
+                animation: float 6s ease-in-out infinite;
+            }
+            .animate-pulse-slow {
+                animation: pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+            }
+            .animate-glow {
+                animation: glow 2s ease-in-out infinite alternate;
+            }
+            @keyframes float {
+                0%, 100% { transform: translateY(0px); }
+                50% { transform: translateY(-10px); }
+            }
+            @keyframes glow {
+                from {
+                    box-shadow: 0 0 10px rgba(99, 102, 241, 0.5);
+                }
+                to {
+                    box-shadow: 0 0 20px rgba(99, 102, 241, 0.8);
+                }
+            }
+        }
+    </style>
+</head>
+<body class="font-inter min-h-screen flex items-center justify-center bg-gradient-secondary relative overflow-hidden">
+    <!-- 背景装饰 -->
+    <div class="absolute inset-0 z-0">
+        <div class="absolute top-20 left-1/4 w-64 h-64 bg-primary/20 rounded-full blur-3xl"></div>
+        <div class="absolute bottom-20 right-1/4 w-80 h-80 bg-secondary/20 rounded-full blur-3xl"></div>
+        <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-accent/10 rounded-full blur-3xl"></div>
+    </div>
+
+    <div class="relative z-10 w-full max-w-md px-4">
+        <div class="bg-white/10 backdrop-blur-xl rounded-2xl shadow-2xl border border-white/20 overflow-hidden transition-all duration-500 hover:shadow-neon-lg hover:-translate-y-2">
+            <!-- 头部 -->
+            <div class="p-8">
+                <!-- 标题 -->
+                <div class="text-center mb-10">
+                    <div class="w-20 h-20 mx-auto mb-4 bg-gradient-primary rounded-2xl flex items-center justify-center animate-float animate-glow">
+                        <i class="fa fa-play-circle text-white text-4xl"></i>
+                    </div>
+                    <h1 class="text-[clamp(1.5rem,3vw,2.5rem)] font-bold text-white mb-2">
+                        ZLMediaKit
+                    </h1>
+                    <p class="text-white/80 text-lg">媒体服务器管理系统</p>
+                </div>
+                
+                <!-- 登录表单 -->
+                <form id="loginForm" class="space-y-6">
+                    <div>
+                        <label for="secret" class="block text-sm font-semibold text-white mb-2">
+                            API密钥
+                        </label>
+                        <div class="relative">
+                            <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                                <i class="fa fa-key text-white/60"></i>
+                            </div>
+                            <input 
+                                type="password" 
+                                id="secret" 
+                                name="secret" 
+                                placeholder="请输入API密钥"
+                                required
+                                autocomplete="current-password"
+                                class="w-full h-12 pl-12 pr-12 py-3 rounded-xl bg-white/10 border border-white/20 text-white placeholder-white/60 focus:border-primary focus:ring-2 focus:ring-primary/50 focus:outline-none transition-all duration-300"
+                            >
+                            <button 
+                                type="button" 
+                                id="togglePassword"
+                                class="absolute right-4 top-1/2 -translate-y-1/2 text-white/80 hover:text-white transition-colors duration-300"
+                            >
+                                <i class="fa fa-eye text-xl"></i>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <button 
+                        type="submit" 
+                        id="loginBtn"
+                        class="w-full h-14 bg-gradient-primary text-white font-semibold rounded-xl transition-all duration-300 hover:shadow-neon hover:-translate-y-1 active:translate-y-0 relative overflow-hidden group"
+                    >
+                        <span class="btn-text relative z-10 flex items-center justify-center gap-2">
+                            <i class="fa fa-sign-in"></i>
+                            <span>登 录</span>
+                        </span>
+                        <span class="btn-loading absolute inset-0 flex items-center justify-center gap-2 bg-gradient-primary hidden">
+                            <div class="spinner w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                            <span>登录中...</span>
+                        </span>
+                        <!-- 渐变效果 -->
+                        <div class="absolute inset-0 bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                    </button>
+                </form>
+                
+                <!-- 页脚 -->
+                <div class="mt-8 text-center text-white/60 text-sm">
+                    <p>© 2026 ZLMediaKit. 保留所有权利</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 提示框 -->
+    <div id="toast" class="fixed top-5 right-5 z-50 px-6 py-4 rounded-xl text-white font-semibold shadow-xl backdrop-blur-lg transform translate-x-full opacity-0 transition-all duration-500 ease-out">
+    </div>
+
+    <script src="js/api.js"></script>
+    <script src="js/login.js"></script>
+</body>
+</html>

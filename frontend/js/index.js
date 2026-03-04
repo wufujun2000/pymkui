@@ -1,0 +1,573 @@
+document.addEventListener('DOMContentLoaded', async function() {
+    const isAuth = await checkAuth();
+    if (!isAuth) {
+        return;
+    }
+
+    initTabs();
+    initNavigation();
+    await initLogout();
+    
+    addTab('dashboard', '状态概览', 'fa-dashboard');
+});
+
+let tabs = [];
+let activeTab = null;
+
+const pageNames = {
+    'dashboard': '状态概览',
+    'streams': '视频管理',
+    'pull-proxy': '拉流代理',
+    'push-proxy': '推流代理',
+    'auth': '鉴权管理',
+    'settings': '服务配置',
+    'whip': '在线推流'
+};
+
+const pageIcons = {
+    'dashboard': 'fa-dashboard',
+    'streams': 'fa-video-camera',
+    'pull-proxy': 'fa-download',
+    'push-proxy': 'fa-upload',
+    'auth': 'fa-lock',
+    'settings': 'fa-cog',
+    'whip': 'fa-podcast'
+};
+
+function initTabs() {
+    tabs = [];
+    activeTab = null;
+    renderTabs();
+}
+
+function addTab(pageName, title, icon) {
+    const existingTab = tabs.find(tab => tab.pageName === pageName);
+    if (existingTab) {
+        switchTab(pageName);
+        return;
+    }
+    
+    tabs.push({
+        pageName: pageName,
+        title: title || pageNames[pageName] || pageName,
+        icon: icon || pageIcons[pageName] || 'fa-file'
+    });
+    
+    switchTab(pageName);
+    renderTabs();
+}
+
+function switchTab(pageName) {
+    activeTab = pageName;
+    
+    const pages = document.querySelectorAll('.page');
+    pages.forEach(page => {
+        page.classList.add('hidden');
+    });
+    
+    const targetPage = document.getElementById(pageName + '-page');
+    if (targetPage) {
+        targetPage.classList.remove('hidden');
+    }
+    
+    const menuItems = document.querySelectorAll('nav ul li a');
+    menuItems.forEach(menu => {
+        const menuItemPage = menu.getAttribute('data-page');
+        if (menuItemPage === pageName) {
+            menu.classList.remove('border-transparent', 'text-white/80');
+            menu.classList.add('border-primary', 'bg-white/5', 'text-white');
+        } else {
+            menu.classList.remove('border-primary', 'bg-white/5', 'text-white');
+            menu.classList.add('border-transparent', 'text-white/80');
+        }
+    });
+    
+    loadPageData(pageName);
+    renderTabs();
+}
+
+function closeTab(pageName, event) {
+    if (event) {
+        event.stopPropagation();
+    }
+    
+    const tabIndex = tabs.findIndex(tab => tab.pageName === pageName);
+    if (tabIndex === -1) return;
+    
+    if (pageName === 'whip' && typeof whipState !== 'undefined' && whipState.isStreaming) {
+        console.log('关闭whip标签页，停止推流...');
+        stopWhipStream();
+    }
+    
+    tabs.splice(tabIndex, 1);
+    
+    if (activeTab === pageName) {
+        if (tabs.length > 0) {
+            const newActiveIndex = Math.min(tabIndex, tabs.length - 1);
+            switchTab(tabs[newActiveIndex].pageName);
+        } else {
+            activeTab = null;
+        }
+    }
+    
+    renderTabs();
+}
+
+function renderTabs() {
+    const tabsContainer = document.getElementById('tabs');
+    if (!tabsContainer) return;
+    
+    let html = '';
+    tabs.forEach(tab => {
+        const isActive = tab.pageName === activeTab;
+        html += `
+            <div class="flex items-center px-4 py-2 rounded-t-lg cursor-pointer transition-all duration-300 ${isActive ? 'bg-white/10 text-white border-b-2 border-primary' : 'text-white/60 hover:text-white hover:bg-white/5'}" 
+                 onclick="switchTab('${tab.pageName}')">
+                <i class="fa ${tab.icon} mr-2"></i>
+                <span class="mr-2">${tab.title}</span>
+                ${tabs.length > 1 ? `<button class="ml-1 hover:bg-white/20 rounded-full w-5 h-5 flex items-center justify-center" onclick="closeTab('${tab.pageName}', event)">
+                    <i class="fa fa-times text-xs"></i>
+                </button>` : ''}
+            </div>
+        `;
+    });
+    
+    tabsContainer.innerHTML = html;
+}
+
+function loadPageData(pageName) {
+    switch (pageName) {
+        case 'dashboard':
+            loadDashboardPage();
+            break;
+        case 'streams':
+            loadStreamsPage();
+            break;
+        case 'pull-proxy':
+            loadPullProxyPage();
+            break;
+        case 'push-proxy':
+            loadPushProxyPage();
+            break;
+        case 'auth':
+            loadAuthPage();
+            break;
+        case 'settings':
+            loadSettingsPage();
+            break;
+        case 'whip':
+            loadWhipPage();
+            break;
+        default:
+            break;
+    }
+}
+
+async function loadDashboardPage() {
+    const content = document.getElementById('dashboard-content');
+    console.log('开始加载dashboard页面...');
+    
+    content.innerHTML = `
+        <div class="flex justify-center items-center h-64">
+            <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary mx-auto mb-4"></div>
+            <span class="text-white/60 font-semibold">加载中...</span>
+        </div>
+    `;
+    
+    try {
+        console.log('正在获取dashboard.html文件...');
+        const response = await fetch('pages/dashboard.html');
+        console.log('dashboard.html文件获取成功，状态:', response.status);
+        
+        if (response.ok) {
+            const html = await response.text();
+            console.log('dashboard.html文件内容长度:', html.length);
+            content.innerHTML = html;
+            console.log('dashboard.html文件内容已加载到页面');
+            
+            setTimeout(() => {
+                console.log('开始初始化dashboard功能...');
+                if (typeof loadDashboard === 'function') {
+                    loadDashboard();
+                } else {
+                    console.error('loadDashboard函数未定义');
+                }
+            }, 100);
+        } else {
+            console.error('加载dashboard.html文件失败，状态:', response.status);
+            content.innerHTML = `
+                <div class="text-center p-10 text-white/60 font-semibold">
+                    加载状态概览页面失败
+                </div>
+            `;
+        }
+    } catch (error) {
+        console.error('加载dashboard页面时发生错误:', error);
+        content.innerHTML = `
+            <div class="text-center p-10 text-white/60 font-semibold">
+                网络错误: ${error.message}
+            </div>
+        `;
+    }
+}
+
+async function loadStreamsPage() {
+    const content = document.getElementById('streams-content');
+    console.log('开始加载streams页面...');
+    
+    content.innerHTML = `
+        <div class="flex justify-center items-center h-64">
+            <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary mx-auto mb-4"></div>
+            <span class="text-white/60 font-semibold">加载中...</span>
+        </div>
+    `;
+    
+    try {
+        console.log('正在获取streams.html文件...');
+        const response = await fetch('pages/streams.html');
+        console.log('streams.html文件获取成功，状态:', response.status);
+        
+        if (response.ok) {
+            const html = await response.text();
+            console.log('streams.html文件内容长度:', html.length);
+            content.innerHTML = html;
+            console.log('streams.html文件内容已加载到页面');
+            
+            setTimeout(() => {
+                console.log('开始初始化streams功能...');
+                if (typeof loadStreams === 'function') {
+                    loadStreams();
+                    
+                    const protocolFilter = document.getElementById('protocolFilter');
+                    if (protocolFilter) {
+                        protocolFilter.addEventListener('change', loadStreams);
+                        console.log('协议筛选事件监听器已绑定');
+                    }
+                    
+                    const refreshButton = document.getElementById('refreshStreams');
+                    if (refreshButton) {
+                        refreshButton.addEventListener('click', loadStreams);
+                        console.log('刷新按钮事件监听器已绑定');
+                    }
+                } else {
+                    console.error('loadStreams函数未定义');
+                }
+            }, 100);
+        } else {
+            console.error('加载streams.html文件失败，状态:', response.status);
+            content.innerHTML = `
+                <div class="text-center p-10 text-white/60 font-semibold">
+                    加载视频管理页面失败
+                </div>
+            `;
+        }
+    } catch (error) {
+        console.error('加载streams页面时发生错误:', error);
+        content.innerHTML = `
+            <div class="text-center p-10 text-white/60 font-semibold">
+                网络错误: ${error.message}
+            </div>
+        `;
+    }
+}
+
+async function loadPullProxyPage() {
+    const content = document.getElementById('pull-proxy-content');
+    console.log('开始加载pull-proxy页面...');
+    
+    content.innerHTML = `
+        <div class="flex justify-center items-center h-64">
+            <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary mx-auto mb-4"></div>
+            <span class="text-white/60 font-semibold">加载中...</span>
+        </div>
+    `;
+    
+    try {
+        console.log('正在获取pull-proxy.html文件...');
+        const response = await fetch('pages/pull-proxy.html');
+        console.log('pull-proxy.html文件获取成功，状态:', response.status);
+        
+        if (response.ok) {
+            const html = await response.text();
+            console.log('pull-proxy.html文件内容长度:', html.length);
+            content.innerHTML = html;
+            console.log('pull-proxy.html文件内容已加载到页面');
+        } else {
+            console.error('加载pull-proxy.html文件失败，状态:', response.status);
+            content.innerHTML = `
+                <div class="text-center p-10 text-white/60 font-semibold">
+                    加载拉流代理页面失败
+                </div>
+            `;
+        }
+    } catch (error) {
+        console.error('加载pull-proxy页面时发生错误:', error);
+        content.innerHTML = `
+            <div class="text-center p-10 text-white/60 font-semibold">
+                网络错误: ${error.message}
+            </div>
+        `;
+    }
+}
+
+async function loadPushProxyPage() {
+    const content = document.getElementById('push-proxy-content');
+    console.log('开始加载push-proxy页面...');
+    
+    content.innerHTML = `
+        <div class="flex justify-center items-center h-64">
+            <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary mx-auto mb-4"></div>
+            <span class="text-white/60 font-semibold">加载中...</span>
+        </div>
+    `;
+    
+    try {
+        console.log('正在获取push-proxy.html文件...');
+        const response = await fetch('pages/push-proxy.html');
+        console.log('push-proxy.html文件获取成功，状态:', response.status);
+        
+        if (response.ok) {
+            const html = await response.text();
+            console.log('push-proxy.html文件内容长度:', html.length);
+            content.innerHTML = html;
+            console.log('push-proxy.html文件内容已加载到页面');
+        } else {
+            console.error('加载push-proxy.html文件失败，状态:', response.status);
+            content.innerHTML = `
+                <div class="text-center p-10 text-white/60 font-semibold">
+                    加载推流代理页面失败
+                </div>
+            `;
+        }
+    } catch (error) {
+        console.error('加载push-proxy页面时发生错误:', error);
+        content.innerHTML = `
+            <div class="text-center p-10 text-white/60 font-semibold">
+                网络错误: ${error.message}
+            </div>
+        `;
+    }
+}
+
+async function loadAuthPage() {
+    const content = document.getElementById('auth-content');
+    console.log('开始加载auth页面...');
+    
+    content.innerHTML = `
+        <div class="flex justify-center items-center h-64">
+            <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary mx-auto mb-4"></div>
+            <span class="text-white/60 font-semibold">加载中...</span>
+        </div>
+    `;
+    
+    try {
+        console.log('正在获取auth.html文件...');
+        const response = await fetch('pages/auth.html');
+        console.log('auth.html文件获取成功，状态:', response.status);
+        
+        if (response.ok) {
+            const html = await response.text();
+            console.log('auth.html文件内容长度:', html.length);
+            content.innerHTML = html;
+            console.log('auth.html文件内容已加载到页面');
+        } else {
+            console.error('加载auth.html文件失败，状态:', response.status);
+            content.innerHTML = `
+                <div class="text-center p-10 text-white/60 font-semibold">
+                    加载鉴权管理页面失败
+                </div>
+            `;
+        }
+    } catch (error) {
+        console.error('加载auth页面时发生错误:', error);
+        content.innerHTML = `
+            <div class="text-center p-10 text-white/60 font-semibold">
+                网络错误: ${error.message}
+            </div>
+        `;
+    }
+}
+
+async function loadSettingsPage() {
+    const content = document.getElementById('settings-content');
+    console.log('开始加载settings页面...');
+    
+    content.innerHTML = `
+        <div class="flex justify-center items-center h-64">
+            <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary mx-auto mb-4"></div>
+            <span class="text-white/60 font-semibold">加载中...</span>
+        </div>
+    `;
+    
+    try {
+        console.log('正在获取settings.html文件...');
+        const response = await fetch('pages/settings.html');
+        console.log('settings.html文件获取成功，状态:', response.status);
+        
+        if (response.ok) {
+            const html = await response.text();
+            console.log('settings.html文件内容长度:', html.length);
+            content.innerHTML = html;
+            console.log('settings.html文件内容已加载到页面');
+        } else {
+            console.error('加载settings.html文件失败，状态:', response.status);
+            content.innerHTML = `
+                <div class="text-center p-10 text-white/60 font-semibold">
+                    加载服务配置页面失败
+                </div>
+            `;
+        }
+    } catch (error) {
+        console.error('加载settings页面时发生错误:', error);
+        content.innerHTML = `
+            <div class="text-center p-10 text-white/60 font-semibold">
+                网络错误: ${error.message}
+            </div>
+        `;
+    }
+}
+
+async function loadWhipPage() {
+    const content = document.getElementById('whip-content');
+    console.log('开始加载whip页面...');
+    
+    if (typeof whipState !== 'undefined' && whipState.initialized) {
+        console.log('whip页面已初始化，恢复状态...');
+        if (typeof restoreWhipState === 'function') {
+            restoreWhipState();
+        }
+        return;
+    }
+    
+    content.innerHTML = `
+        <div class="flex justify-center items-center h-64">
+            <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary mx-auto mb-4"></div>
+            <span class="text-white/60 font-semibold">加载中...</span>
+        </div>
+    `;
+    
+    try {
+        console.log('正在获取whip.html文件...');
+        const response = await fetch('pages/whip.html');
+        console.log('whip.html文件获取成功，状态:', response.status);
+        
+        if (response.ok) {
+            const html = await response.text();
+            console.log('whip.html文件内容长度:', html.length);
+            content.innerHTML = html;
+            console.log('whip.html文件内容已加载到页面');
+            
+            setTimeout(() => {
+                console.log('开始初始化whip推流功能...');
+                if (typeof initWhipStreaming === 'function') {
+                    initWhipStreaming();
+                    if (typeof whipState !== 'undefined') {
+                        whipState.initialized = true;
+                    }
+                } else {
+                    console.error('initWhipStreaming函数未定义');
+                }
+            }, 100);
+        } else {
+            console.error('加载whip.html文件失败，状态:', response.status);
+            content.innerHTML = `
+                <div class="text-center p-10 text-white/60 font-semibold">
+                    加载在线推流页面失败
+                </div>
+            `;
+        }
+    } catch (error) {
+        console.error('加载whip页面时发生错误:', error);
+        content.innerHTML = `
+            <div class="text-center p-10 text-white/60 font-semibold">
+                网络错误: ${error.message}
+            </div>
+        `;
+    }
+}
+
+function initNavigation() {
+    const menuItems = document.querySelectorAll('nav ul li a');
+
+    menuItems.forEach(item => {
+        if (item.id === 'logoutBtn') {
+            return;
+        }
+        
+        item.addEventListener('click', function(e) {
+            e.preventDefault();
+            
+            const pageName = this.getAttribute('data-page');
+            const title = this.querySelector('span').textContent;
+            const iconClass = this.querySelector('i').className.split(' ').find(cls => cls.startsWith('fa-'));
+            
+            addTab(pageName, title, iconClass);
+        });
+    });
+}
+
+async function initLogout() {
+    document.getElementById('logoutBtn').addEventListener('click', async function() {
+        if (confirm('确定要退出登录吗？')) {
+            try {
+                await Api.logout();
+                Api.clearAuth();
+                showToast('已退出登录', 'info');
+                setTimeout(() => {
+                    window.location.href = 'login.html';
+                }, 1000);
+            } catch (error) {
+                showToast('退出登录失败: ' + error.message, 'error');
+            }
+        }
+    });
+}
+
+function showToast(message, type = 'info') {
+    const toast = document.getElementById('toast');
+    const toastMessage = document.getElementById('toast-message');
+    const toastIcon = toast.querySelector('i');
+    
+    toastMessage.textContent = message;
+    
+    switch (type) {
+        case 'success':
+            toastIcon.className = 'fa fa-check-circle';
+            break;
+        case 'error':
+            toastIcon.className = 'fa fa-exclamation-circle';
+            break;
+        case 'warning':
+            toastIcon.className = 'fa fa-exclamation-triangle';
+            break;
+        default:
+            toastIcon.className = 'fa fa-info-circle';
+    }
+    
+    toast.className = 'fixed top-4 right-4 z-50 transition-all duration-500 transform translate-x-full opacity-0';
+    
+    let bgClass = '';
+    switch (type) {
+        case 'success':
+            bgClass = 'bg-gradient-to-r from-green-400 to-emerald-500';
+            break;
+        case 'error':
+            bgClass = 'bg-gradient-to-r from-rose-500 to-red-500';
+            break;
+        case 'warning':
+            bgClass = 'bg-gradient-to-r from-amber-400 to-yellow-500';
+            break;
+        default:
+            bgClass = 'bg-gradient-primary';
+    }
+    
+    toast.classList.add(...bgClass.split(' '));
+    
+    setTimeout(() => {
+        toast.classList.remove('translate-x-full', 'opacity-0');
+    }, 100);
+    
+    setTimeout(() => {
+        toast.classList.add('translate-x-full', 'opacity-0');
+    }, 3000);
+}

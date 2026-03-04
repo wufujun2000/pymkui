@@ -1,0 +1,47 @@
+<div class="space-y-6">
+    <div class="flex justify-end items-center mb-4">
+        <div class="flex items-center space-x-4">
+            <div class="flex items-center space-x-2">
+                <label class="text-white font-semibold">协议筛选:</label>
+                <select id="protocolFilter" class="bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-primary">
+                    <option value="all" selected>全部</option>
+                    <option value="rtsp">RTSP</option>
+                    <option value="rtmp">RTMP</option>
+                    <option value="ts">TS</option>
+                    <option value="hls">HLS</option>
+                    <option value="fmp4">FMP4</option>
+                    <option value="hls.fmp4">HLS.FMP4</option>
+                </select>
+            </div>
+            <button id="refreshStreams" class="bg-gradient-primary text-white px-6 py-2 rounded-lg font-semibold hover:shadow-neon transition-all duration-300 hover:-translate-y-1">
+                <i class="fa fa-refresh mr-2"></i>刷新
+            </button>
+        </div>
+    </div>
+
+    <div class="bg-white/5 rounded-xl p-6 shadow-lg border border-white/10">
+        <div class="overflow-x-auto">
+            <table class="w-full">
+                <thead>
+                    <tr class="border-b border-white/10">
+                        <th class="text-left py-4 px-4 text-white font-semibold">应用</th>
+                        <th class="text-left py-4 px-4 text-white font-semibold">流ID</th>
+                        <th class="text-left py-4 px-4 text-white font-semibold">协议</th>
+                        <th class="text-left py-4 px-4 text-white font-semibold">观众数</th>
+                        <th class="text-left py-4 px-4 text-white font-semibold">在线时长</th>
+                        <th class="text-left py-4 px-4 text-white font-semibold">码率</th>
+                        <th class="text-left py-4 px-4 text-white font-semibold">操作</th>
+                    </tr>
+                </thead>
+                <tbody id="streamsTableBody">
+                    <tr>
+                        <td colspan="7" class="p-10 text-center">
+                            <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary mx-auto mb-4"></div>
+                            <span class="text-white/60 font-semibold">加载中...</span>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
