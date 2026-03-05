@@ -168,18 +168,22 @@ function drawThreadsLoadChart(data) {
     }
     
     window.threadsLoadChart = new Chart(ctx, {
-        type: 'bar',
+        type: 'line',
         data: {
             labels: labels,
             datasets: [
                 {
                     label: '负载',
                     data: loadData,
-                    type: 'bar',
-                    backgroundColor: 'rgba(54, 162, 235, 0.7)',
+                    type: 'line',
+                    backgroundColor: 'rgba(54, 162, 235, 0.2)',
                     borderColor: 'rgba(54, 162, 235, 1)',
-                    borderWidth: 1,
-                    yAxisID: 'y1'
+                    borderWidth: 2,
+                    tension: 0.4,
+                    fill: true,
+                    yAxisID: 'y1',
+                    pointRadius: 3,
+                    pointHoverRadius: 5
                 },
                 {
                     label: '延迟',
@@ -188,16 +192,24 @@ function drawThreadsLoadChart(data) {
                     backgroundColor: 'rgba(255, 206, 86, 0.2)',
                     borderColor: 'rgba(255, 206, 86, 1)',
                     borderWidth: 2,
-                    yAxisID: 'y'
+                    tension: 0.4,
+                    fill: true,
+                    yAxisID: 'y',
+                    pointRadius: 3,
+                    pointHoverRadius: 5
                 },
                 {
                     label: 'FD数量',
                     data: fdCountScaled,
-                    type: 'bar',
-                    backgroundColor: 'rgba(153, 102, 255, 0.7)',
+                    type: 'line',
+                    backgroundColor: 'rgba(153, 102, 255, 0.2)',
                     borderColor: 'rgba(153, 102, 255, 1)',
-                    borderWidth: 1,
-                    yAxisID: 'y1'
+                    borderWidth: 2,
+                    tension: 0.4,
+                    fill: true,
+                    yAxisID: 'y1',
+                    pointRadius: 3,
+                    pointHoverRadius: 5
                 }
             ]
         },
@@ -288,13 +300,13 @@ function drawThreadsLoadChart(data) {
                     chart.data.datasets.forEach(function(dataset, i) {
                         if (dataset.label === 'FD数量') {
                             const meta = chart.getDatasetMeta(i);
-                            meta.data.forEach(function(bar, index) {
+                            meta.data.forEach(function(point, index) {
                                 const data = fdCountData[index];
                                 ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
                                 ctx.font = '10px Inter, system-ui, sans-serif';
                                 ctx.textAlign = 'center';
                                 ctx.textBaseline = 'bottom';
-                                ctx.fillText(data, bar.x, bar.y - 5);
+                                ctx.fillText(data, point.x, point.y - 5);
                             });
                         }
                     });
@@ -323,18 +335,22 @@ function drawWorkThreadsLoadChart(data) {
     }
     
     window.workThreadsLoadChart = new Chart(ctx, {
-        type: 'bar',
+        type: 'line',
         data: {
             labels: labels,
             datasets: [
                 {
                     label: '负载',
                     data: loadData,
-                    type: 'bar',
-                    backgroundColor: 'rgba(54, 162, 235, 0.7)',
+                    type: 'line',
+                    backgroundColor: 'rgba(54, 162, 235, 0.2)',
                     borderColor: 'rgba(54, 162, 235, 1)',
-                    borderWidth: 1,
-                    yAxisID: 'y1'
+                    borderWidth: 2,
+                    tension: 0.4,
+                    fill: true,
+                    yAxisID: 'y1',
+                    pointRadius: 3,
+                    pointHoverRadius: 5
                 },
                 {
                     label: '延迟',
@@ -343,16 +359,24 @@ function drawWorkThreadsLoadChart(data) {
                     backgroundColor: 'rgba(255, 206, 86, 0.2)',
                     borderColor: 'rgba(255, 206, 86, 1)',
                     borderWidth: 2,
-                    yAxisID: 'y'
+                    tension: 0.4,
+                    fill: true,
+                    yAxisID: 'y',
+                    pointRadius: 3,
+                    pointHoverRadius: 5
                 },
                 {
                     label: 'FD数量',
                     data: fdCountScaled,
-                    type: 'bar',
-                    backgroundColor: 'rgba(153, 102, 255, 0.7)',
+                    type: 'line',
+                    backgroundColor: 'rgba(153, 102, 255, 0.2)',
                     borderColor: 'rgba(153, 102, 255, 1)',
-                    borderWidth: 1,
-                    yAxisID: 'y1'
+                    borderWidth: 2,
+                    tension: 0.4,
+                    fill: true,
+                    yAxisID: 'y1',
+                    pointRadius: 3,
+                    pointHoverRadius: 5
                 }
             ]
         },
@@ -443,13 +467,13 @@ function drawWorkThreadsLoadChart(data) {
                     chart.data.datasets.forEach(function(dataset, i) {
                         if (dataset.label === 'FD数量') {
                             const meta = chart.getDatasetMeta(i);
-                            meta.data.forEach(function(bar, index) {
+                            meta.data.forEach(function(point, index) {
                                 const data = fdCountData[index];
                                 ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
                                 ctx.font = '10px Inter, system-ui, sans-serif';
                                 ctx.textAlign = 'center';
                                 ctx.textBaseline = 'bottom';
-                                ctx.fillText(data, bar.x, bar.y - 5);
+                                ctx.fillText(data, point.x, point.y - 5);
                             });
                         }
                     });
