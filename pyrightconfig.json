@@ -1,0 +1,9 @@
+{
+    "venvPath": "/Users/xzl",
+    "venv": "venv3.12",
+    "pythonVersion": "3.12",
+    "typeCheckingMode": "basic",
+    "extraPaths": [
+        "./backend"
+    ]
+}

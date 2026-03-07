@@ -11,22 +11,29 @@ async function loadDashboard() {
                 totalViewers += stream.readerCount || 0;
             });
             document.getElementById('viewerCount').textContent = totalViewers;
-            document.getElementById('trafficCount').textContent = '计算中...';
         } else {
             document.getElementById('streamCount').textContent = '0';
             document.getElementById('viewerCount').textContent = '0';
-            document.getElementById('trafficCount').textContent = '-';
         }
         
         await loadVersion();
         await loadStatistic();
         await loadThreadsLoad();
         await loadWorkThreadsLoad();
-        loadSystemResources();
+        await loadSystemResources();
     } catch (error) {
         showToast('加载数据失败: ' + error.message, 'error');
     }
 }
+
+// 页面加载完成后初始化并设置定时器
+window.addEventListener('load', function() {
+    // 首次加载数据
+    loadDashboard();
+    
+    // 设置3秒刷新一次状态
+    setInterval(loadDashboard, 3000);
+});
 
 async function loadVersion() {
     try {
@@ -483,32 +490,137 @@ function drawWorkThreadsLoadChart(data) {
     });
 }
 
-function loadSystemResources() {
-    drawCpuChart();
-    drawMemoryChart();
+// 存储历史数据
+let cpuHistory = Array(7).fill(0);
+let memoryHistory = Array(7).fill(0);
+let diskHistory = Array(7).fill(0);
+let networkSentHistory = Array(7).fill(0);
+let networkRecvHistory = Array(7).fill(0);
+let timeLabels = Array(7).fill('');
+
+// 格式化字节数单位
+function formatBytes(bytes) {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
-function drawCpuChart() {
-    const ctx = document.getElementById('cpuChart').getContext('2d');
+async function loadSystemResources() {
+    try {
+        const result = await Api.getHostStats();
+        if (result.code === 0) {
+            const data = result.data || {};
+            
+            // 更新流量统计
+            const network = data.network || {};
+            const sentTotal = network.sent_total || 0;
+            const recvTotal = network.recv_total || 0;
+            document.getElementById('trafficCount').innerHTML = `
+                <p class="text-white/70 text-xs">发送: ${formatBytes(sentTotal * 1024)}</p>
+                <p class="text-white/70 text-xs mt-1">接收: ${formatBytes(recvTotal * 1024)}</p>
+            `;
+            
+            // 更新历史数据
+            updateHistoryData(data);
+            
+            // 绘制图表
+            drawCpuMemoryChart(data.memory || {});
+            drawDiskChart(data.disk || {});
+            drawNetworkChart(data.network || {});
+        } else {
+            showToast('加载系统状态失败: ' + result.msg, 'error');
+        }
+    } catch (error) {
+        showToast('加载系统状态失败: ' + error.message, 'error');
+    }
+}
+
+function updateHistoryData(data) {
+    // 更新时间标签
+    const time = data.time || '';
+    timeLabels.shift();
+    timeLabels.push(time);
     
-    const labels = ['12:00', '12:05', '12:10', '12:15', '12:20', '12:25', '12:30'];
-    const data = [15, 18, 16, 19, 17, 16, 18];
+    // 更新CPU数据
+    const cpu = data.cpu || 0;
+    cpuHistory.shift();
+    cpuHistory.push(cpu);
     
-    if (window.cpuChart && typeof window.cpuChart.destroy === 'function') {
-        window.cpuChart.destroy();
+    // 更新内存数据
+    const memoryUsed = data.memory?.used || 0;
+    memoryHistory.shift();
+    memoryHistory.push(memoryUsed);
+    
+    // 更新磁盘数据
+    const diskUsed = data.disk?.used || 0;
+    diskHistory.shift();
+    diskHistory.push(diskUsed);
+    
+    // 更新网络数据
+    const networkSent = data.network?.sent || 0;
+    networkSentHistory.shift();
+    networkSentHistory.push(networkSent);
+    
+    const networkRecv = data.network?.recv || 0;
+    networkRecvHistory.shift();
+    networkRecvHistory.push(networkRecv);
+}
+
+// 格式化存储单位
+function formatStorage(value) {
+    if (value >= 1024) {
+        return {
+            value: value / 1024,
+            unit: 'TB'
+        };
+    }
+    return {
+        value: value,
+        unit: 'GB'
+    };
+}
+
+function drawCpuMemoryChart(memoryData = {}) {
+    const ctx = document.getElementById('cpuMemoryChart').getContext('2d');
+    
+    const totalMemory = memoryData.total || 24;
+    const formattedMemory = formatStorage(totalMemory);
+    const maxMemory = Math.ceil(formattedMemory.value * 1.2);
+    
+    // 格式化内存历史数据
+    const formattedMemoryHistory = memoryHistory.map(value => {
+        if (formattedMemory.unit === 'TB') {
+            return value / 1024;
+        }
+        return value;
+    });
+    
+    if (window.cpuMemoryChart && typeof window.cpuMemoryChart.destroy === 'function') {
+        window.cpuMemoryChart.destroy();
     }
     
-    window.cpuChart = new Chart(ctx, {
+    window.cpuMemoryChart = new Chart(ctx, {
         type: 'line',
         data: {
-            labels: labels,
+            labels: timeLabels,
             datasets: [{
-                label: 'CPU',
-                data: data,
+                label: 'CPU使用率',
+                data: cpuHistory,
                 borderColor: 'rgba(75, 192, 192, 1)',
                 backgroundColor: 'rgba(75, 192, 192, 0.2)',
                 tension: 0.4,
-                fill: true
+                fill: true,
+                yAxisID: 'y'
+            }, {
+                label: `内存使用 (${formattedMemory.unit})`,
+                data: formattedMemoryHistory,
+                borderColor: 'rgba(54, 162, 235, 1)',
+                backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                tension: 0.4,
+                fill: true,
+                yAxisID: 'y1'
             }]
         },
         options: {
@@ -516,68 +628,34 @@ function drawCpuChart() {
             maintainAspectRatio: false,
             scales: {
                 y: {
+                    type: 'linear',
+                    display: true,
+                    position: 'left',
                     beginAtZero: true,
                     max: 100,
                     grid: {
                         color: 'rgba(255, 255, 255, 0.1)'
                     },
                     ticks: {
-                        color: 'rgba(255, 255, 255, 0.8)'
+                        color: 'rgba(255, 255, 255, 0.8)',
+                        callback: function(value) {
+                            return value + ' %';
+                        }
                     }
                 },
-                x: {
-                    grid: {
-                        color: 'rgba(255, 255, 255, 0.1)'
-                    },
-                    ticks: {
-                        color: 'rgba(255, 255, 255, 0.8)'
-                    }
-                }
-            },
-            plugins: {
-                legend: {
-                    display: false
-                }
-            }
-        }
-    });
-}
-
-function drawMemoryChart() {
-    const ctx = document.getElementById('memoryChart').getContext('2d');
-    
-    const data = [12, 12, 12, 12, 12, 12, 12];
-    
-    if (window.memoryChart && typeof window.memoryChart.destroy === 'function') {
-        window.memoryChart.destroy();
-    }
-    
-    window.memoryChart = new Chart(ctx, {
-        type: 'bar',
-        data: {
-            labels: ['已使用', '已使用', '已使用', '已使用', '已使用', '已使用', '已使用'],
-            datasets: [{
-                label: '已使用',
-                data: data,
-                backgroundColor: 'rgba(54, 162, 235, 0.7)',
-                borderColor: 'rgba(54, 162, 235, 1)',
-                borderWidth: 1
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            scales: {
-                y: {
+                y1: {
+                    type: 'linear',
+                    display: true,
+                    position: 'right',
                     beginAtZero: true,
-                    max: 24,
+                    max: maxMemory,
                     grid: {
-                        color: 'rgba(255, 255, 255, 0.1)'
+                        drawOnChartArea: false
                     },
                     ticks: {
-                        color: 'rgba(255, 255, 255, 0.8',
+                        color: 'rgba(255, 255, 255, 0.8)',
                         callback: function(value) {
-                            return value + ' GB';
+                            return Math.round(value) + ' ' + formattedMemory.unit;
                         }
                     }
                 },
@@ -592,7 +670,194 @@ function drawMemoryChart() {
             },
             plugins: {
                 legend: {
-                    display: false
+                    display: true,
+                    labels: {
+                        color: 'rgba(255, 255, 255, 0.8)'
+                    }
+                }
+            }
+        }
+    });
+}
+
+function drawDiskChart(diskData = {}) {
+    const ctx = document.getElementById('diskChart').getContext('2d');
+    
+    const totalDisk = diskData.total || 500;
+    const formattedDisk = formatStorage(totalDisk);
+    const maxDisk = Math.ceil(formattedDisk.value * 1.2);
+    
+    // 格式化磁盘历史数据
+    const formattedDiskHistory = diskHistory.map(value => {
+        if (formattedDisk.unit === 'TB') {
+            return value / 1024;
+        }
+        return value;
+    });
+    
+    if (window.diskChart && typeof window.diskChart.destroy === 'function') {
+        window.diskChart.destroy();
+    }
+    
+    window.diskChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: timeLabels,
+            datasets: [{
+                label: `磁盘使用 (${formattedDisk.unit})`,
+                data: formattedDiskHistory,
+                borderColor: 'rgba(255, 99, 132, 1)',
+                backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                tension: 0.4,
+                fill: true
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    max: maxDisk,
+                    grid: {
+                        color: 'rgba(255, 255, 255, 0.1)'
+                    },
+                    ticks: {
+                        color: 'rgba(255, 255, 255, 0.8)',
+                        callback: function(value) {
+                            return Math.round(value) + ' ' + formattedDisk.unit;
+                        }
+                    }
+                },
+                x: {
+                    grid: {
+                        color: 'rgba(255, 255, 255, 0.1)'
+                    },
+                    ticks: {
+                        color: 'rgba(255, 255, 255, 0.8)'
+                    }
+                }
+            },
+            plugins: {
+                legend: {
+                    display: true,
+                    labels: {
+                        color: 'rgba(255, 255, 255, 0.8)'
+                    }
+                }
+            }
+        }
+    });
+}
+
+// 格式化网络速率单位
+function formatNetworkSpeed(value) {
+    if (value >= 1024 * 1024) {
+        return {
+            value: value / (1024 * 1024),
+            unit: 'GB/s'
+        };
+    } else if (value >= 1024) {
+        return {
+            value: value / 1024,
+            unit: 'MB/s'
+        };
+    }
+    return {
+        value: value,
+        unit: 'KB/s'
+    };
+}
+
+function drawNetworkChart(networkData = {}) {
+    const ctx = document.getElementById('networkChart').getContext('2d');
+    
+    // 找出最大的网络速率值
+    const maxSent = Math.max(...networkSentHistory);
+    const maxRecv = Math.max(...networkRecvHistory);
+    const maxSpeed = Math.max(maxSent, maxRecv);
+    
+    // 格式化网络速率单位
+    const formattedSpeed = formatNetworkSpeed(maxSpeed);
+    
+    // 计算Y轴最大值
+    const maxY = Math.ceil(formattedSpeed.value * 1.2);
+    
+    // 格式化历史数据
+    const formattedSentHistory = networkSentHistory.map(value => {
+        if (formattedSpeed.unit === 'GB/s') {
+            return value / (1024 * 1024);
+        } else if (formattedSpeed.unit === 'MB/s') {
+            return value / 1024;
+        }
+        return value;
+    });
+    
+    const formattedRecvHistory = networkRecvHistory.map(value => {
+        if (formattedSpeed.unit === 'GB/s') {
+            return value / (1024 * 1024);
+        } else if (formattedSpeed.unit === 'MB/s') {
+            return value / 1024;
+        }
+        return value;
+    });
+    
+    if (window.networkChart && typeof window.networkChart.destroy === 'function') {
+        window.networkChart.destroy();
+    }
+    
+    window.networkChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: timeLabels,
+            datasets: [{
+                label: `网络发送 (${formattedSpeed.unit})`,
+                data: formattedSentHistory,
+                borderColor: 'rgba(255, 159, 64, 1)',
+                backgroundColor: 'rgba(255, 159, 64, 0.2)',
+                tension: 0.4,
+                fill: true
+            }, {
+                label: `网络接收 (${formattedSpeed.unit})`,
+                data: formattedRecvHistory,
+                borderColor: 'rgba(153, 102, 255, 1)',
+                backgroundColor: 'rgba(153, 102, 255, 0.2)',
+                tension: 0.4,
+                fill: true
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    max: maxY,
+                    grid: {
+                        color: 'rgba(255, 255, 255, 0.1)'
+                    },
+                    ticks: {
+                        color: 'rgba(255, 255, 255, 0.8)',
+                        callback: function(value) {
+                            return Math.round(value * 10) / 10 + ' ' + formattedSpeed.unit;
+                        }
+                    }
+                },
+                x: {
+                    grid: {
+                        color: 'rgba(255, 255, 255, 0.1)'
+                    },
+                    ticks: {
+                        color: 'rgba(255, 255, 255, 0.8)'
+                    }
+                }
+            },
+            plugins: {
+                legend: {
+                    display: true,
+                    labels: {
+                        color: 'rgba(255, 255, 255, 0.8)'
+                    }
                 }
             }
         }

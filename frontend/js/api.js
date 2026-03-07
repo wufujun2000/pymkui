@@ -334,6 +334,10 @@ const Api = {
         return result;
     },
 
+    async getHostStats() {
+        return this.request('/index/pyapi/host-stats', { method: 'GET' });
+    },
+
     clearAuth() {
         this.cookie = '';
         localStorage.removeItem('serverUrl');
