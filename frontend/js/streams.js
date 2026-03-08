@@ -650,7 +650,7 @@ function initJessibucaPlayer(playUrl, modal) {
                 audio: true
             },
             forceNoOffscreen: true,
-            isNotMute: false,
+            isNotMute: true,
             timeout: 10,
             heartTimeout: 10,
             heartTimeoutReplay: true,
