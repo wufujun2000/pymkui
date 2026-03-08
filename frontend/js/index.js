@@ -22,7 +22,8 @@ const pageNames = {
     'auth': '鉴权管理',
     'settings': '服务配置',
     'whip': '在线推流',
-    'network': '连接管理'
+    'network': '连接管理',
+    'protocol-options': '协议配置'
 };
 
 const pageIcons = {
@@ -33,7 +34,8 @@ const pageIcons = {
     'auth': 'fa-lock',
     'settings': 'fa-cog',
     'whip': 'fa-podcast',
-    'network': 'fa-link'
+    'network': 'fa-link',
+    'protocol-options': 'fa-cogs'
 };
 
 function initTabs() {
@@ -96,7 +98,15 @@ function closeTab(pageName, event) {
     const tabIndex = tabs.findIndex(tab => tab.pageName === pageName);
     if (tabIndex === -1) return;
     
-    if (pageName === 'whip' && typeof whipState !== 'undefined' && whipState.isStreaming) {
+    // 清理模态框和播放器
+    if (pageName === 'streams' && typeof cleanupStreamsPage === 'function') {
+        cleanupStreamsPage();
+    } else if (pageName === 'protocol-options') {
+        const protocolOptionsModalContainer = document.getElementById('protocol-options-modal-container');
+        if (protocolOptionsModalContainer) {
+            protocolOptionsModalContainer.innerHTML = '';
+        }
+    } else if (pageName === 'whip' && typeof whipState !== 'undefined' && whipState.isStreaming) {
         console.log('关闭whip标签页，停止推流...');
         stopWhipStream();
     } else if (pageName === 'dashboard' && typeof cleanupDashboard === 'function') {
@@ -165,6 +175,9 @@ function loadPageData(pageName) {
             break;
         case 'network':
             loadNetworkPage();
+            break;
+        case 'protocol-options':
+            loadProtocolOptionsPage();
             break;
         default:
             break;
@@ -543,6 +556,62 @@ async function loadNetworkPage() {
         }
     } catch (error) {
         console.error('加载network页面时发生错误:', error);
+        content.innerHTML = `
+            <div class="text-center p-10 text-white/60 font-semibold">
+                网络错误: ${error.message}
+            </div>
+        `;
+    }
+}
+
+async function loadProtocolOptionsPage() {
+    console.log('loadProtocolOptionsPage函数被调用');
+    const content = document.getElementById('protocol-options-content');
+    console.log('找到protocol-options-content元素:', content);
+    if (!content) {
+        console.error('protocol-options-content元素不存在');
+        return;
+    }
+    console.log('开始加载protocol-options页面...');
+    
+    content.innerHTML = `
+        <div class="flex justify-center items-center h-64">
+            <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary mx-auto mb-4"></div>
+            <span class="text-white/60 font-semibold">加载中...</span>
+        </div>
+    `;
+    
+    try {
+        console.log('正在获取protocol-options.html文件...');
+        const response = await fetch('pages/protocol-options.html');
+        console.log('protocol-options.html文件获取成功，状态:', response.status);
+        
+        if (response.ok) {
+            const html = await response.text();
+            console.log('protocol-options.html文件内容长度:', html.length);
+            content.innerHTML = html;
+            console.log('protocol-options.html文件内容已加载到页面');
+            
+            setTimeout(() => {
+                console.log('开始初始化protocol-options功能...');
+                console.log('loadProtocolOptions函数是否存在:', typeof loadProtocolOptions === 'function');
+                if (typeof loadProtocolOptions === 'function') {
+                    console.log('调用loadProtocolOptions函数');
+                    loadProtocolOptions();
+                } else {
+                    console.error('loadProtocolOptions函数未定义');
+                }
+            }, 100);
+        } else {
+            console.error('加载protocol-options.html文件失败，状态:', response.status);
+            content.innerHTML = `
+                <div class="text-center p-10 text-white/60 font-semibold">
+                    加载协议配置页面失败
+                </div>
+            `;
+        }
+    } catch (error) {
+        console.error('加载protocol-options页面时发生错误:', error);
         content.innerHTML = `
             <div class="text-center p-10 text-white/60 font-semibold">
                 网络错误: ${error.message}

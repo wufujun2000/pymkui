@@ -380,6 +380,26 @@ const Api = {
         }
     },
 
+    async addProtocolOptions(data) {
+        return this.request('/index/pyapi/add_protocol_options', { body: data });
+    },
+
+    async updateProtocolOptions(data) {
+        return this.request('/index/pyapi/update_protocol_options', { body: data });
+    },
+
+    async deleteProtocolOptions(id) {
+        return this.request('/index/pyapi/delete_protocol_options', { body: { id } });
+    },
+
+    async getProtocolOptionsList() {
+        return this.request('/index/pyapi/get_protocol_options_list', { method: 'GET' });
+    },
+
+    async getProtocolOptions(id) {
+        return this.request(`/index/pyapi/get_protocol_options?id=${id}`, { method: 'GET' });
+    },
+
     clearAuth() {
         this.cookie = '';
         localStorage.removeItem('serverUrl');

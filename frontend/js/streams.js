@@ -1,3 +1,24 @@
+const jessibucaInstances = [];
+
+function cleanupStreamsPage() {
+    console.log('清理视频管理页面资源，销毁所有播放器实例');
+    jessibucaInstances.forEach(instance => {
+        try {
+            if (instance) {
+                instance.destroy();
+            }
+        } catch (error) {
+            console.error('销毁播放器实例失败:', error);
+        }
+    });
+    jessibucaInstances.length = 0;
+    
+    const streamsModalContainer = document.getElementById('streams-modal-container');
+    if (streamsModalContainer) {
+        streamsModalContainer.innerHTML = '';
+    }
+}
+
 async function loadStreams() {
     const tbody = document.getElementById('streamsTableBody');
     const protocolFilter = document.getElementById('protocolFilter');
@@ -599,24 +620,39 @@ function playWithJessibuca(app, stream, schema) {
         `;
         document.getElementById('streams-modal-container').appendChild(modal);
         
-        modal.addEventListener('click', function(e) {
-            if (e.target === modal) {
-                modal.remove();
-            }
-        });
-        
         const playUrl = generatePlayUrl(app, stream, schema);
         
         console.log('Jessibuca播放URL:', playUrl);
         
+        let jessibucaInstance = null;
+        
+        const destroyPlayer = () => {
+            if (jessibucaInstance) {
+                console.log('销毁Jessibuca播放器');
+                jessibucaInstance.destroy();
+                const index = jessibucaInstances.indexOf(jessibucaInstance);
+                if (index > -1) {
+                    jessibucaInstances.splice(index, 1);
+                }
+                jessibucaInstance = null;
+            }
+        };
+        
+        modal.addEventListener('click', function(e) {
+            if (e.target === modal) {
+                destroyPlayer();
+                modal.remove();
+            }
+        });
+        
         if (window.Jessibuca) {
-            initJessibucaPlayer(playUrl, modal);
+            jessibucaInstance = initJessibucaPlayer(playUrl, modal, destroyPlayer);
         } else {
             const script = document.createElement('script');
             script.src = 'js/lib/jessibuca.js';
             script.onload = () => {
                 console.log('Jessibuca播放器加载成功');
-                initJessibucaPlayer(playUrl, modal);
+                jessibucaInstance = initJessibucaPlayer(playUrl, modal, destroyPlayer);
             };
             script.onerror = () => {
                 console.error('加载Jessibuca播放器失败');
@@ -631,7 +667,7 @@ function playWithJessibuca(app, stream, schema) {
     }
 }
 
-function initJessibucaPlayer(playUrl, modal) {
+function initJessibucaPlayer(playUrl, modal, destroyCallback) {
     try {
         const jessibuca = new window.Jessibuca({
             container: document.getElementById('jessibucaContainer'),
@@ -680,13 +716,19 @@ function initJessibucaPlayer(playUrl, modal) {
         console.log('开始播放:', playUrl);
         jessibuca.play(playUrl);
         
+        jessibucaInstances.push(jessibuca);
+        
         modal.querySelector('button').addEventListener('click', () => {
-            console.log('销毁Jessibuca播放器');
-            jessibuca.destroy();
+            if (destroyCallback) {
+                destroyCallback();
+            }
         });
+        
+        return jessibuca;
     } catch (error) {
         console.error('初始化Jessibuca播放器失败:', error);
         showToast('初始化播放器失败: ' + error.message, 'error');
+        return null;
     }
 }
 

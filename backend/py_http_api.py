@@ -14,6 +14,7 @@ from fastapi import Request
 from fastapi import FastAPI, Request, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from database import Database
 
 
 # ---------- 添加：全局 JSON 美化 ----------
@@ -187,3 +188,241 @@ async def get_param_from_request(
 
     return None
 
+# 初始化数据库实例
+db = Database()
+
+@app.post(
+    "/index/pyapi/add_protocol_options",
+    tags=["转协议预设"],
+    summary="添加转协议预设参数",
+)
+async def add_protocol_options(request: Request):
+    """
+    添加转协议预设参数
+    
+    参数：
+    - name: 预设名称（必选）
+    - modify_stamp: 转协议时，是否开启帧级时间戳覆盖（字符串类型）
+    - enable_audio: 转协议是否开启音频（字符串类型）
+    - add_mute_audio: 添加acc静音音频（字符串类型）
+    - auto_close: 无人观看时，是否直接关闭（字符串类型）
+    - continue_push_ms: 推流断开后超时时间（毫秒，字符串类型）
+    - paced_sender_ms: 平滑发送定时器间隔（毫秒，字符串类型）
+    - enable_hls: 是否开启转换为hls(mpegts)（字符串类型）
+    - enable_hls_fmp4: 是否开启转换为hls(fmp4)（字符串类型）
+    - enable_mp4: 是否开启MP4录制（字符串类型）
+    - enable_rtsp: 是否开启转换为rtsp/webrtc（字符串类型）
+    - enable_rtmp: 是否开启转换为rtmp/flv（字符串类型）
+    - enable_ts: 是否开启转换为http-ts/ws-ts（字符串类型）
+    - enable_fmp4: 是否开启转换为http-fmp4/ws-fmp4（字符串类型）
+    - mp4_as_player: 是否将mp4录制当做观看者（字符串类型）
+    - mp4_max_second: mp4切片大小（秒，字符串类型）
+    - mp4_save_path: mp4录制保存路径（字符串类型）
+    - hls_save_path: hls录制保存路径（字符串类型）
+    - hls_demand: hls协议是否按需生成（字符串类型）
+    - rtsp_demand: rtsp[s]协议是否按需生成（字符串类型）
+    - rtmp_demand: rtmp[s]、http[s]-flv、ws[s]-flv协议是否按需生成（字符串类型）
+    - ts_demand: http[s]-ts协议是否按需生成（字符串类型）
+    - fmp4_demand: http[s]-fmp4、ws[s]-fmp4协议是否按需生成（字符串类型）
+    
+    注意：所有参数都是字符串类型，默认为NULL，用户可以不指定，C++程序会加载配置文件默认配置
+    """
+    try:
+        body_bytes = await request.body()
+        if not body_bytes:
+            return {"code": -1, "msg": "请求体为空"}
+        
+        content_type = request.headers.get("content-type", "")
+        
+        if "application/json" in content_type or not content_type:
+            try:
+                data = json.loads(body_bytes.decode("utf-8"))
+            except:
+                data = {}
+        elif "application/x-www-form-urlencoded" in content_type or "multipart/form-data" in content_type:
+            parsed = urllib.parse.parse_qs(body_bytes.decode("utf-8"), keep_blank_values=True)
+            data = {k: v[0] if len(v) == 1 else v for k, v in parsed.items()}
+        else:
+            try:
+                data = json.loads(body_bytes.decode("utf-8"))
+            except:
+                return {"code": -1, "msg": f"不支持的Content-Type: {content_type}"}
+        
+        if not isinstance(data, dict):
+            return {"code": -1, "msg": "参数格式错误"}
+        
+        name = data.get("name")
+        if not name:
+            return {"code": -1, "msg": "预设名称不能为空"}
+        
+        kwargs = {}
+        for key in ['modify_stamp', 'enable_audio', 'add_mute_audio', 'auto_close',
+                    'continue_push_ms', 'paced_sender_ms', 'enable_hls', 'enable_hls_fmp4',
+                    'enable_mp4', 'enable_rtsp', 'enable_rtmp', 'enable_ts', 'enable_fmp4',
+                    'mp4_as_player', 'mp4_max_second', 'mp4_save_path', 'hls_save_path',
+                    'hls_demand', 'rtsp_demand', 'rtmp_demand', 'ts_demand', 'fmp4_demand']:
+            if key in data:
+                kwargs[key] = str(data[key])
+        
+        option_id = db.add_protocol_option(name, **kwargs)
+        if option_id:
+            return {"code": 0, "msg": "添加成功", "data": {"id": option_id}}
+        else:
+            return {"code": -1, "msg": "添加失败，预设名称可能已存在"}
+    except Exception as e:
+        mk_logger.log_warn(f"添加转协议预设失败: {e}")
+        return {"code": -1, "msg": f"添加失败: {str(e)}"}
+
+@app.post(
+    "/index/pyapi/update_protocol_options",
+    tags=["转协议预设"],
+    summary="修改转协议预设参数",
+)
+async def update_protocol_options(request: Request):
+    """
+    修改转协议预设参数
+    
+    参数：
+    - id: 预设ID（必选）
+    - 其他参数同添加接口
+    """
+    try:
+        body_bytes = await request.body()
+        if not body_bytes:
+            return {"code": -1, "msg": "请求体为空"}
+        
+        content_type = request.headers.get("content-type", "")
+        
+        if "application/json" in content_type or not content_type:
+            try:
+                data = json.loads(body_bytes.decode("utf-8"))
+            except:
+                data = {}
+        elif "application/x-www-form-urlencoded" in content_type or "multipart/form-data" in content_type:
+            parsed = urllib.parse.parse_qs(body_bytes.decode("utf-8"), keep_blank_values=True)
+            data = {k: v[0] if len(v) == 1 else v for k, v in parsed.items()}
+        else:
+            try:
+                data = json.loads(body_bytes.decode("utf-8"))
+            except:
+                return {"code": -1, "msg": f"不支持的Content-Type: {content_type}"}
+        
+        if not isinstance(data, dict):
+            return {"code": -1, "msg": "参数格式错误"}
+        
+        option_id = data.get("id")
+        if not option_id:
+            return {"code": -1, "msg": "预设ID不能为空"}
+        
+        try:
+            option_id = int(option_id)
+        except (ValueError, TypeError):
+            return {"code": -1, "msg": "预设ID格式错误"}
+        
+        kwargs = {}
+        for key in ['name', 'modify_stamp', 'enable_audio', 'add_mute_audio', 'auto_close',
+                    'continue_push_ms', 'paced_sender_ms', 'enable_hls', 'enable_hls_fmp4',
+                    'enable_mp4', 'enable_rtsp', 'enable_rtmp', 'enable_ts', 'enable_fmp4',
+                    'mp4_as_player', 'mp4_max_second', 'mp4_save_path', 'hls_save_path',
+                    'hls_demand', 'rtsp_demand', 'rtmp_demand', 'ts_demand', 'fmp4_demand']:
+            if key in data:
+                kwargs[key] = str(data[key])
+        
+        if db.update_protocol_option(option_id, **kwargs):
+            return {"code": 0, "msg": "修改成功"}
+        else:
+            return {"code": -1, "msg": "修改失败，预设不存在或名称已存在"}
+    except Exception as e:
+        mk_logger.log_warn(f"修改转协议预设失败: {e}")
+        return {"code": -1, "msg": f"修改失败: {str(e)}"}
+
+@app.post(
+    "/index/pyapi/delete_protocol_options",
+    tags=["转协议预设"],
+    summary="删除转协议预设参数",
+)
+async def delete_protocol_options(request: Request):
+    """
+    删除转协议预设参数
+    
+    参数：
+    - id: 预设ID（必选）
+    """
+    try:
+        body_bytes = await request.body()
+        if not body_bytes:
+            return {"code": -1, "msg": "请求体为空"}
+        
+        content_type = request.headers.get("content-type", "")
+        
+        if "application/json" in content_type or not content_type:
+            try:
+                data = json.loads(body_bytes.decode("utf-8"))
+            except:
+                data = {}
+        elif "application/x-www-form-urlencoded" in content_type or "multipart/form-data" in content_type:
+            parsed = urllib.parse.parse_qs(body_bytes.decode("utf-8"), keep_blank_values=True)
+            data = {k: v[0] if len(v) == 1 else v for k, v in parsed.items()}
+        else:
+            try:
+                data = json.loads(body_bytes.decode("utf-8"))
+            except:
+                return {"code": -1, "msg": f"不支持的Content-Type: {content_type}"}
+        
+        if not isinstance(data, dict):
+            return {"code": -1, "msg": "参数格式错误"}
+        
+        option_id = data.get("id")
+        if not option_id:
+            return {"code": -1, "msg": "预设ID不能为空"}
+        
+        try:
+            option_id = int(option_id)
+        except (ValueError, TypeError):
+            return {"code": -1, "msg": "预设ID格式错误"}
+        
+        if db.delete_protocol_option(option_id):
+            return {"code": 0, "msg": "删除成功"}
+        else:
+            return {"code": -1, "msg": "删除失败，预设不存在"}
+    except Exception as e:
+        mk_logger.log_warn(f"删除转协议预设失败: {e}")
+        return {"code": -1, "msg": f"删除失败: {str(e)}"}
+
+@app.get(
+    "/index/pyapi/get_protocol_options_list",
+    tags=["转协议预设"],
+    summary="获取转协议预设参数列表",
+)
+async def get_protocol_options_list():
+    """
+    获取转协议预设参数列表
+    """
+    try:
+        options = db.get_all_protocol_options()
+        return {"code": 0, "msg": "获取成功", "data": options}
+    except Exception as e:
+        mk_logger.log_warn(f"获取转协议预设列表失败: {e}")
+        return {"code": -1, "msg": f"获取失败: {str(e)}"}
+
+@app.get(
+    "/index/pyapi/get_protocol_options",
+    tags=["转协议预设"],
+    summary="获取转协议预设参数详情",
+)
+async def get_protocol_options(id: int = Query(..., description="预设ID")):
+    """
+    获取转协议预设参数详情
+    
+    参数：
+    - id: 预设ID（必选）
+    """
+    try:
+        option = db.get_protocol_option(id)
+        if option:
+            return {"code": 0, "msg": "获取成功", "data": option}
+        else:
+            return {"code": -1, "msg": "预设不存在"}
+    except Exception as e:
+        mk_logger.log_warn(f"获取转协议预设详情失败: {e}")
+        return {"code": -1, "msg": f"获取失败: {str(e)}"}
