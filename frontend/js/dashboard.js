@@ -1,28 +1,97 @@
 async function loadDashboard() {
     try {
-        const result = await Api.getMediaList();
+        // 并行获取数据，提高性能
+        const [statisticResult, mediaResult, versionResult, threadsLoadResult, workThreadsLoadResult, hostStatsResult] = await Promise.all([
+            Api.getStatistic(),
+            Api.getMediaList(),
+            Api.getVersion(),
+            Api.getThreadsLoad(),
+            Api.getWorkThreadsLoad(),
+            Api.getHostStats()
+        ]);
         
-        if (result.code === 0) {
-            const data = result.data || [];
-            document.getElementById('streamCount').textContent = data.length;
+        // 处理统计数据
+        if (statisticResult.code === 0) {
+            const statisticData = statisticResult.data || {};
+            // 使用MultiMediaSourceMuxer个数作为在线流数
+            const streamCount = statisticData.MultiMediaSourceMuxer || 0;
+            document.getElementById('streamCount').textContent = streamCount;
             
+            // 绘制统计图表
+            drawStatisticChart(statisticData);
+        } else {
+            document.getElementById('streamCount').textContent = '0';
+        }
+        
+        // 处理媒体列表数据
+        if (mediaResult.code === 0) {
+            const mediaData = mediaResult.data || [];
             let totalViewers = 0;
-            data.forEach(stream => {
+            mediaData.forEach(stream => {
                 totalViewers += stream.readerCount || 0;
             });
             document.getElementById('viewerCount').textContent = totalViewers;
         } else {
-            document.getElementById('streamCount').textContent = '0';
             document.getElementById('viewerCount').textContent = '0';
         }
         
-        await loadVersion();
-        await loadStatistic();
-        await loadThreadsLoad();
-        await loadWorkThreadsLoad();
-        await loadSystemResources();
+        // 处理版本信息
+        if (versionResult.code === 0) {
+            const data = versionResult.data || {};
+            const branchName = data.branchName || '-';
+            const buildTime = data.buildTime || '-';
+            const commitHash = data.commitHash || '-';
+            document.getElementById('versionInfo').textContent = `服务版本: ${commitHash}`;
+            document.getElementById('branchInfo').textContent = `分支: ${branchName}`;
+            document.getElementById('buildInfo').textContent = `编译时间: ${buildTime}`;
+        } else {
+            document.getElementById('versionInfo').textContent = '服务版本: -';
+            document.getElementById('branchInfo').textContent = '分支: -';
+            document.getElementById('buildInfo').textContent = '编译时间: -';
+        }
+        
+        // 处理线程负载数据
+        if (threadsLoadResult.code === 0) {
+            const data = threadsLoadResult.data || [];
+            drawThreadsLoadChart(data);
+        }
+        
+        // 处理工作线程负载数据
+        if (workThreadsLoadResult.code === 0) {
+            const data = workThreadsLoadResult.data || [];
+            drawWorkThreadsLoadChart(data);
+        }
+        
+        // 处理系统资源数据
+        if (hostStatsResult.code === 0) {
+            const data = hostStatsResult.data || {};
+            
+            // 更新流量统计
+            const network = data.network || {};
+            const sentTotal = network.sent_total || 0;
+            const recvTotal = network.recv_total || 0;
+            document.getElementById('trafficCount').innerHTML = `
+                <p class="text-white/70 text-xs">发送: ${formatBytes(sentTotal * 1024)}</p>
+                <p class="text-white/70 text-xs mt-1">接收: ${formatBytes(recvTotal * 1024)}</p>
+            `;
+            
+            // 更新历史数据
+            updateHistoryData(data);
+            
+            // 绘制图表
+            drawCpuMemoryChart(data.memory || {});
+            drawDiskChart(data.disk || {});
+            drawNetworkChart(data.network || {});
+        } else {
+            showToast('加载系统状态失败: ' + hostStatsResult.msg, 'error');
+        }
     } catch (error) {
         showToast('加载数据失败: ' + error.message, 'error');
+        document.getElementById('streamCount').textContent = '0';
+        document.getElementById('viewerCount').textContent = '0';
+        document.getElementById('versionInfo').textContent = '服务版本: -';
+        document.getElementById('branchInfo').textContent = '分支: -';
+        document.getElementById('buildInfo').textContent = '编译时间: -';
     }
 }
 
@@ -48,44 +117,6 @@ function cleanupDashboard() {
     if (dashboardTimer) {
         clearInterval(dashboardTimer);
         dashboardTimer = null;
-    }
-}
-
-async function loadVersion() {
-    try {
-        const result = await Api.getVersion();
-        if (result.code === 0) {
-            const data = result.data || {};
-            
-            const branchName = data.branchName || '-';
-            const buildTime = data.buildTime || '-';
-            const commitHash = data.commitHash || '-';
-            
-            document.getElementById('versionInfo').textContent = `服务版本: ${commitHash}`;
-            document.getElementById('branchInfo').textContent = `分支: ${branchName}`;
-            document.getElementById('buildInfo').textContent = `编译时间: ${buildTime}`;
-        } else {
-            document.getElementById('versionInfo').textContent = '服务版本: -';
-            document.getElementById('branchInfo').textContent = '分支: -';
-            document.getElementById('buildInfo').textContent = '编译时间: -';
-        }
-    } catch (error) {
-        console.error('获取版本信息失败:', error);
-        document.getElementById('versionInfo').textContent = '服务版本: -';
-        document.getElementById('branchInfo').textContent = '分支: -';
-        document.getElementById('buildInfo').textContent = '编译时间: -';
-    }
-}
-
-async function loadStatistic() {
-    try {
-        const result = await Api.getStatistic();
-        if (result.code === 0) {
-            const data = result.data || {};
-            drawStatisticChart(data);
-        }
-    } catch (error) {
-        showToast('加载对象统计失败: ' + error.message, 'error');
     }
 }
 
@@ -146,30 +177,6 @@ function drawStatisticChart(data) {
             }
         }
     });
-}
-
-async function loadThreadsLoad() {
-    try {
-        const result = await Api.getThreadsLoad();
-        if (result.code === 0) {
-            const data = result.data || [];
-            drawThreadsLoadChart(data);
-        }
-    } catch (error) {
-        showToast('加载线程负载失败: ' + error.message, 'error');
-    }
-}
-
-async function loadWorkThreadsLoad() {
-    try {
-        const result = await Api.getWorkThreadsLoad();
-        if (result.code === 0) {
-            const data = result.data || [];
-            drawWorkThreadsLoadChart(data);
-        }
-    } catch (error) {
-        showToast('加载工作线程负载失败: ' + error.message, 'error');
-    }
 }
 
 function drawThreadsLoadChart(data) {
@@ -521,36 +528,6 @@ function formatBytes(bytes) {
     const sizes = ['KB', 'MB', 'GB', 'TB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-}
-
-async function loadSystemResources() {
-    try {
-        const result = await Api.getHostStats();
-        if (result.code === 0) {
-            const data = result.data || {};
-            
-            // 更新流量统计
-            const network = data.network || {};
-            const sentTotal = network.sent_total || 0;
-            const recvTotal = network.recv_total || 0;
-            document.getElementById('trafficCount').innerHTML = `
-                <p class="text-white/70 text-xs">发送: ${formatBytes(sentTotal * 1024)}</p>
-                <p class="text-white/70 text-xs mt-1">接收: ${formatBytes(recvTotal * 1024)}</p>
-            `;
-            
-            // 更新历史数据
-            updateHistoryData(data);
-            
-            // 绘制图表
-            drawCpuMemoryChart(data.memory || {});
-            drawDiskChart(data.disk || {});
-            drawNetworkChart(data.network || {});
-        } else {
-            showToast('加载系统状态失败: ' + result.msg, 'error');
-        }
-    } catch (error) {
-        showToast('加载系统状态失败: ' + error.message, 'error');
-    }
 }
 
 function updateHistoryData(data) {
