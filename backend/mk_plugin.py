@@ -1,4 +1,5 @@
 import os
+import json
 import mk_logger
 import mk_loader
 import asyncio
@@ -62,6 +63,90 @@ def on_start():
 
     mk_loader.update_config()
     mk_loader.set_fastapi(check_route, submit_coro)
+
+    # 自动恢复非按需拉流代理
+    _restore_pull_proxies()
+
+
+def _restore_pull_proxies():
+    """启动时从数据库读取所有 on_demand=0 的拉流代理，调用 mk_loader.add_stream_proxy 恢复"""
+    try:
+        from database import Database
+        db = Database()
+        proxies = db.get_all_pull_proxies()
+        db.close()
+    except Exception as e:
+        mk_logger.log_warn(f"[restore_pull_proxies] 读取数据库失败: {e}")
+        return
+
+    count = 0
+    for proxy in proxies:
+        if proxy.get("on_demand", 0):
+            # 按需拉流，跳过
+            continue
+
+        vhost = proxy.get("vhost") or "__defaultVhost__"
+        app   = proxy.get("app", "")
+        stream = proxy.get("stream", "")
+        url   = proxy.get("url", "")
+
+        if not app or not stream or not url:
+            mk_logger.log_warn(f"[restore_pull_proxies] 跳过无效记录 id={proxy.get('id')}")
+            continue
+
+        # 解析 custom_params，提取控制参数，剩余部分透传给 opt
+        custom_params_dict = {}
+        raw_custom = proxy.get("custom_params") or "{}"
+        try:
+            custom_params_dict = json.loads(raw_custom) if isinstance(raw_custom, str) else raw_custom
+            if not isinstance(custom_params_dict, dict):
+                custom_params_dict = {}
+        except Exception as e:
+            mk_logger.log_warn(f"[restore_pull_proxies] 解析 custom_params 失败 id={proxy.get('id')}: {e}")
+
+        retry_count  = int(custom_params_dict.pop("retry_count",  -1))
+        timeout_sec  = float(custom_params_dict.pop("timeout_sec", 0.0))
+
+        # 解析 protocol_params，全部透传给 opt
+        opt = {}
+        raw_proto = proxy.get("protocol_params") or "{}"
+        try:
+            proto_dict = json.loads(raw_proto) if isinstance(raw_proto, str) else raw_proto
+            if isinstance(proto_dict, dict):
+                opt.update(proto_dict)
+        except Exception as e:
+            mk_logger.log_warn(f"[restore_pull_proxies] 解析 protocol_params 失败 id={proxy.get('id')}: {e}")
+        # custom_params 剩余字段也透传
+        opt.update(custom_params_dict)
+
+        proxy_id = proxy.get("id")
+
+        def make_callback(pid, vhost, app, stream, url):
+            def cb(err, key):
+                if err:
+                    mk_logger.log_warn(f"[restore_pull_proxies] 恢复失败 id={pid} {vhost}/{app}/{stream}: {err}")
+                else:
+                    mk_logger.log_info(f"[restore_pull_proxies] 恢复成功 id={pid} {vhost}/{app}/{stream} url={url}")
+            return cb
+
+        mk_logger.log_info(
+            f"[restore_pull_proxies] 恢复拉流代理 id={proxy_id} {vhost}/{app}/{stream} url={url} "
+            f"retry_count={retry_count} timeout_sec={timeout_sec}"
+        )
+        mk_loader.add_stream_proxy(
+            vhost,
+            app,
+            stream,
+            url,
+            make_callback(proxy_id, vhost, app, stream, url),
+            retry_count=retry_count,
+            force=True,
+            timeout_sec=timeout_sec,
+            opt=opt,
+        )
+        count += 1
+
+    mk_logger.log_info(f"[restore_pull_proxies] 共恢复 {count} 个拉流代理")
 
 def on_exit():
     mk_logger.log_info("on_exit")
