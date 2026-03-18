@@ -32,7 +32,7 @@ async function loadPullProxyList() {
 
     tbody.innerHTML = `
         <tr>
-            <td colspan="8" class="p-10 text-center">
+            <td colspan="9" class="p-10 text-center">
                 <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary mx-auto mb-4"></div>
                 <span class="text-white/60 font-semibold">加载中...</span>
             </td>
@@ -49,7 +49,7 @@ async function loadPullProxyList() {
         } else {
             tbody.innerHTML = `
                 <tr>
-                    <td colspan="8" class="p-10 text-center text-white/60 font-semibold">
+                    <td colspan="9" class="p-10 text-center text-white/60 font-semibold">
                         加载失败: ${result.msg || '未知错误'}
                     </td>
                 </tr>
@@ -58,7 +58,7 @@ async function loadPullProxyList() {
     } catch (error) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="8" class="p-10 text-center text-white/60 font-semibold">
+                <td colspan="9" class="p-10 text-center text-white/60 font-semibold">
                     网络错误: ${error.message}
                 </td>
             </tr>
@@ -84,7 +84,7 @@ function _renderPullProxyPage() {
     if (total === 0) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="8" class="p-10 text-center text-white/60 font-semibold">
+                <td colspan="9" class="p-10 text-center text-white/60 font-semibold">
                     暂无拉流代理，点击「新增拉流代理」添加
                 </td>
             </tr>
@@ -109,7 +109,8 @@ function _renderPullProxyPage() {
                 <td class="p-4 text-white text-sm">${proxy.vhost || '__defaultVhost__'}</td>
                 <td class="p-4 text-white font-semibold">${proxy.app || '-'}</td>
                 <td class="p-4 text-white font-semibold">${proxy.stream || '-'}</td>
-                <td class="p-4 text-white/80 text-sm max-w-xs truncate" title="${proxy.url || ''}">${proxy.url || '-'}</td>
+                <td class="p-4 text-white/80 text-sm whitespace-nowrap overflow-hidden text-ellipsis" style="max-width:220px" title="${proxy.url || ''}">${proxy.url || '-'}</td>
+                <td class="p-4 text-white/60 text-sm whitespace-nowrap overflow-hidden text-ellipsis" style="max-width:160px" title="${proxy.remark || ''}">${proxy.remark || '-'}</td>
                 <td class="p-4">
                     <span class="px-3 py-1 rounded-full text-sm font-semibold ${onDemandClass}">${onDemandText}</span>
                 </td>
@@ -257,6 +258,13 @@ function showPullProxyModal(title, data, serverConfig = {}, readOnly = false, in
                             <input type="text" id="pullUrl" ${disabledAttr}
                                 value="${getValue('url')}"
                                 placeholder="支持rtsp[s]、rtmp[s]、hls、http[s]-ts、http[s]-flv、srt、webrtc[s]"
+                                class="${inputCls}">
+                        </div>
+                        <div>
+                            <label class="block text-white/80 text-sm font-semibold mb-1">备注(remark)</label>
+                            <input type="text" id="pullRemark" ${disabledAttr}
+                                value="${getValue('remark')}"
+                                placeholder="选填，便于识别此代理用途"
                                 class="${inputCls}">
                         </div>
                         <div class="grid grid-cols-3 gap-4">
@@ -696,11 +704,14 @@ async function submitAddPullProxy(closeModal) {
     if (rtpType    !== '') customParams['rtp_type']    = rtpType;
     if (schema     !== '') customParams['schema']      = schema;
 
+    const remark = (document.getElementById('pullRemark')?.value || '').trim();
+
     const formData = {
         url,
         vhost,
         app,
         stream,
+        remark,
         on_demand: onDemand,
         protocol_params: JSON.stringify(protocolParams),
         custom_params:   JSON.stringify(customParams),

@@ -511,6 +511,7 @@ async def add_stream_proxy(request: Request):
         
         custom_params = data.get("custom_params", "{}")
         protocol_params = data.get("protocol_params", "{}")
+        remark = data.get("remark", "")
 
         # on_demand: 接受 bool / 0 / 1 / "0" / "1" / "true" / "false"
         raw_on_demand = data.get("on_demand", 0)
@@ -526,6 +527,7 @@ async def add_stream_proxy(request: Request):
                 "app": app,
                 "stream": stream,
                 "url": url,
+                "remark": remark,
                 "custom_params": custom_params,
                 "protocol_params": protocol_params,
                 "on_demand": 1,
@@ -571,6 +573,7 @@ async def add_stream_proxy(request: Request):
                 "app": app,
                 "stream": stream,
                 "url": url,
+                "remark": remark,
                 "custom_params": custom_params,
                 "protocol_params": protocol_params,
                 "on_demand": 0,

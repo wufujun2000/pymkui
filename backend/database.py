@@ -33,6 +33,7 @@ class Database:
                 app TEXT NOT NULL,
                 stream TEXT NOT NULL,
                 url TEXT NOT NULL,
+                remark TEXT DEFAULT '',
                 custom_params TEXT,
                 protocol_params TEXT,
                 on_demand INTEGER DEFAULT 0,
@@ -41,12 +42,16 @@ class Database:
                 UNIQUE(vhost, app, stream)
             )
         ''')
-        # 兼容已有数据库：若旧表缺少 on_demand 列则补上
-        try:
-            self.cursor.execute('ALTER TABLE pull_proxies ADD COLUMN on_demand INTEGER DEFAULT 0')
-            self.connection.commit()
-        except Exception:
-            pass  # 列已存在，忽略
+        # 兼容已有数据库：若旧表缺少列则补上
+        for col_def in [
+            'ALTER TABLE pull_proxies ADD COLUMN on_demand INTEGER DEFAULT 0',
+            "ALTER TABLE pull_proxies ADD COLUMN remark TEXT DEFAULT ''",
+        ]:
+            try:
+                self.cursor.execute(col_def)
+                self.connection.commit()
+            except Exception:
+                pass  # 列已存在，忽略
         
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS push_tasks (
@@ -353,11 +358,12 @@ class Database:
         """Add a pull proxy"""
         try:
             self.cursor.execute(
-                'INSERT INTO pull_proxies (vhost, app, stream, url, custom_params, protocol_params, on_demand) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                'INSERT INTO pull_proxies (vhost, app, stream, url, remark, custom_params, protocol_params, on_demand) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
                 (proxy_data.get('vhost', '__defaultVhost__'),
                  proxy_data.get('app'),
                  proxy_data.get('stream'),
                  proxy_data.get('url'),
+                 proxy_data.get('remark', ''),
                  proxy_data.get('custom_params', '{}'),
                  proxy_data.get('protocol_params', '{}'),
                  int(bool(proxy_data.get('on_demand', 0))))
@@ -399,7 +405,7 @@ class Database:
             values = []
             
             for key, value in kwargs.items():
-                if key in ['vhost', 'app', 'stream', 'url', 'custom_params', 'protocol_params', 'on_demand']:
+                if key in ['vhost', 'app', 'stream', 'url', 'remark', 'custom_params', 'protocol_params', 'on_demand']:
                     set_clause.append(f"{key} = ?")
                     values.append(value)
             
