@@ -213,9 +213,15 @@ def get_forward_headers(request: Request) -> dict:
     从入站请求中提取需要透传给 ZLMediaKit 的 headers（目前仅 cookie）。
     """
     headers: dict = {}
-    cookie = request.headers.get("cookie")
-    if cookie:
-        headers["cookie"] = cookie
+    # 直接从 headers 中获取 cookie 字段（大小写不敏感）
+    cookie_header = None
+    for key, value in request.headers.items():
+        if key.lower() == "cookie":
+            cookie_header = value
+            break
+    
+    if cookie_header:
+        headers["Cookie"] = cookie_header
     return headers
 
 
@@ -561,7 +567,6 @@ async def add_stream_proxy(request: Request):
                 zlm_params.update(protocol_params_dict)
             except:
                 pass
-        
         # 透传客户端 cookie
         response = await client.post(zlm_url, data=zlm_params, headers=get_forward_headers(request))
         result = response.json()
