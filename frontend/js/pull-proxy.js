@@ -144,8 +144,12 @@ function _renderPullProxyPage() {
             // 未查询
             statusHtml = `<span class="px-3 py-1 rounded-full text-xs font-semibold bg-white/10 text-white/40">查询中</span>`;
         } else if (status === null) {
-            // ZLM 无此记录 → 离线（不可点击）
-            statusHtml = `<span class="px-3 py-1 rounded-full text-xs font-semibold bg-white/10 text-white/40"><i class="fa fa-circle mr-1"></i>离线</span>`;
+            // ZLM 无此记录 → 离线，可点击手动启动
+            statusHtml = `<button class="px-3 py-1 rounded-full text-xs font-semibold bg-white/10 text-white/40 hover:bg-orange-500/30 hover:text-orange-300 transition-colors"
+                title="离线，点击尝试重新拉流"
+                onclick="startOfflineProxy(${proxy.id})">
+                <i class="fa fa-circle mr-1"></i>离线
+            </button>`;
         } else {
             const ss = status.status_str || '';
             // 把 status 对象存到全局 map，用 key 引用，避免 onclick 内联 JSON 转义问题
@@ -1029,6 +1033,62 @@ async function togglePullProxyMode(id, onDemand) {
                 }
             } catch (error) {
                 showToast('切换失败: ' + error.message, 'error');
+            }
+        }
+    );
+}
+
+/**
+ * 对离线代理手动触发一次拉流（直接调用 ZLM addStreamProxy）
+ * force=0：已存在则不覆盖；auto_close 按需模式=1，否则=0
+ */
+async function startOfflineProxy(id) {
+    // 从当前列表缓存中找到该代理
+    const proxy = (_pullProxyState.all || []).find(p => p.id === id);
+    if (!proxy) {
+        showToast('未找到代理信息，请刷新列表', 'error');
+        return;
+    }
+
+    const vhost    = proxy.vhost  || '__defaultVhost__';
+    const app      = proxy.app    || '';
+    const stream   = proxy.stream || '';
+    const onDemand = proxy.on_demand ? 1 : 0;
+    const modeText = onDemand ? '按需' : '立即';
+
+    showConfirmModal(
+        '重新拉流',
+        `确定对 <b>${app}/${stream}</b> 发起重新拉流？<br>当前模式：${modeText}`,
+        async function () {
+            try {
+                // 解析已保存的参数
+                let customParams = {};
+                let protocolParams = {};
+                try { customParams   = JSON.parse(proxy.custom_params   || '{}'); } catch (e) {}
+                try { protocolParams = JSON.parse(proxy.protocol_params  || '{}'); } catch (e) {}
+
+                // 先展开 protocolParams / customParams，再强制覆盖关键字段
+                const params = {
+                    ...protocolParams,
+                    ...customParams,
+                    vhost,
+                    app,
+                    stream,
+                    url:        proxy.url || '',
+                    force:      0,
+                    auto_close: onDemand,   // 按需=1（无人观看后自动关闭），立即=0（强制覆盖，不可被 protocolParams/customParams 覆盖）
+                };
+
+                const result = await Api.zlmAddStreamProxy(params);
+                if (result.code === 0) {
+                    showToast('拉流请求已发送', 'success');
+                    // 延迟一秒后刷新状态
+                    setTimeout(() => loadPullProxyList(), 1500);
+                } else {
+                    showToast('拉流失败: ' + (result.msg || '未知错误'), 'error');
+                }
+            } catch (error) {
+                showToast('拉流失败: ' + error.message, 'error');
             }
         }
     );
