@@ -262,8 +262,8 @@ def on_stream_not_found(args: dict, sender: dict, invoker) -> bool:
         opt['auto_close'] = True  # 按需拉流自动关闭，流无人观看且拉流成功后自动关闭
         mk_loader.add_stream_proxy(
             vhost, app, stream, url, cb,
-            retry_count=0,
-            force=False,          # 已存在则不重复拉
+            retry_count=len(proxy_urls) - 1,  # 首次拉取第一条地址，失败后自动重试剩余地址
+            force=True,          # 已存在则不重复拉
             timeout_sec=timeout_sec,
             opt=opt,
         )
