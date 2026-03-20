@@ -45,12 +45,13 @@ class Database:
         ''')
 
         # 多地址表：每条代理可配置多个拉流地址，priority 越小越优先
+        # params 字段（JSON）存储该地址专属参数，如 schema、rtp_type 等
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS pull_proxy_urls (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 proxy_id INTEGER NOT NULL,
                 url TEXT NOT NULL,
-                schema TEXT DEFAULT '',
+                params TEXT DEFAULT '{}',
                 priority INTEGER DEFAULT 0,
                 created_at TIMESTAMP DEFAULT current_timestamp,
                 FOREIGN KEY(proxy_id) REFERENCES pull_proxies(id) ON DELETE CASCADE
@@ -439,7 +440,7 @@ class Database:
     # ==================== 多地址管理 ====================
 
     def get_proxy_urls(self, proxy_id: int) -> List[Dict[str, Any]]:
-        """获取某个代理的所有地址，按 priority 升序"""
+        """获取某个代理的所有地址，按 priority 升序，params 字段自动反序列化为 dict"""
         try:
             self.cursor.execute(
                 'SELECT * FROM pull_proxy_urls WHERE proxy_id = ? ORDER BY priority ASC, id ASC',
@@ -447,7 +448,15 @@ class Database:
             )
             rows = self.cursor.fetchall()
             columns = [d[0] for d in self.cursor.description]
-            return [dict(zip(columns, row)) for row in rows]
+            result = []
+            for row in rows:
+                item = dict(zip(columns, row))
+                try:
+                    item['params'] = json.loads(item.get('params') or '{}')
+                except Exception:
+                    item['params'] = {}
+                result.append(item)
+            return result
         except sqlite3.Error as e:
             mk_logger.log_warn(f"Failed to get proxy urls: {e}")
             return []
@@ -455,14 +464,17 @@ class Database:
     def set_proxy_urls(self, proxy_id: int, urls: List[Dict[str, Any]]) -> bool:
         """
         全量替换某个代理的地址列表。
-        urls 格式: [{"url": "...", "schema": "hls"}, ...]
+        urls 格式: [{"url": "...", "params": {"schema": "hls", "rtp_type": "0", ...}}, ...]
         """
         try:
             self.cursor.execute('DELETE FROM pull_proxy_urls WHERE proxy_id = ?', (proxy_id,))
             for i, item in enumerate(urls):
+                params = item.get('params', {})
+                if not isinstance(params, dict):
+                    params = {}
                 self.cursor.execute(
-                    'INSERT INTO pull_proxy_urls (proxy_id, url, schema, priority) VALUES (?, ?, ?, ?)',
-                    (proxy_id, item.get('url', ''), item.get('schema', ''), i)
+                    'INSERT INTO pull_proxy_urls (proxy_id, url, params, priority) VALUES (?, ?, ?, ?)',
+                    (proxy_id, item.get('url', ''), json.dumps(params, ensure_ascii=False), i)
                 )
             self.connection.commit()
             return True

@@ -141,14 +141,14 @@ def _restore_pull_proxies():
         # 从多地址表取第一条地址
         proxy_urls = db.get_proxy_urls(proxy_id)
         first_url  = proxy_urls[0] if proxy_urls else {}
-        url    = first_url.get("url", "")
-        schema = first_url.get("schema", "")
+        url        = first_url.get("url", "")
+        url_params = first_url.get("params", {})  # 已反序列化为 dict
 
         if not app or not stream or not url:
             mk_logger.log_warn(f"[restore_pull_proxies] 跳过无效记录 id={proxy_id}")
             continue
 
-        vhost, app, stream, url, retry_count, timeout_sec, opt = _build_proxy_call_args(proxy, url, schema)
+        vhost, app, stream, url, retry_count, timeout_sec, opt = _build_proxy_call_args(proxy, url, url_params)
 
         def make_callback(pid, vhost, app, stream, url):
             def cb(err, key):
@@ -178,10 +178,12 @@ def _restore_pull_proxies():
     mk_logger.log_info(f"[restore_pull_proxies] 共恢复 {count} 个拉流代理")
 
 
-def _build_proxy_call_args(proxy: dict, url: str = "", schema: str = "") -> tuple:
+def _build_proxy_call_args(proxy: dict, url: str = "", url_params: dict = {}) -> tuple:
     """
     从数据库代理记录中解析出 add_stream_proxy 所需的参数。
-    url/schema 由调用方从 pull_proxy_urls 表取得后传入。
+    url      由调用方从 pull_proxy_urls.url 取得后传入。
+    url_params 由调用方从 pull_proxy_urls.params 取得后传入（已反序列化为 dict），
+               包含 schema、rtp_type 等地址级参数。
     返回 (vhost, app, stream, url, retry_count, timeout_sec, opt)
     """
     vhost  = proxy.get("vhost")  or "__defaultVhost__"
@@ -209,8 +211,9 @@ def _build_proxy_call_args(proxy: dict, url: str = "", schema: str = "") -> tupl
     except Exception as e:
         mk_logger.log_warn(f"[build_proxy_call_args] 解析 protocol_params 失败 id={proxy.get('id')}: {e}")
     opt.update(custom_params_dict)
-    if schema:
-        opt["schema"] = schema
+    # 地址级参数（schema、rtp_type 等）优先级最高，覆盖其他同名参数
+    if url_params:
+        opt.update({k: v for k, v in url_params.items() if v != '' and v is not None})
 
     return vhost, app, stream, url, retry_count, timeout_sec, opt
 
@@ -240,12 +243,12 @@ def on_stream_not_found(args: dict, sender: dict, invoker) -> bool:
         # 从多地址表取第一条地址
         proxy_urls = db.get_proxy_urls(pid)
         first_url  = proxy_urls[0] if proxy_urls else {}
-        url    = first_url.get("url", "")
-        schema = first_url.get("schema", "")
+        url        = first_url.get("url", "")
+        url_params = first_url.get("params", {})  # 已反序列化为 dict
         if not url:
             mk_logger.log_warn(f"[on_stream_not_found] 按需代理无有效地址 id={pid}")
             return False
-        vhost, app, stream, url, retry_count, timeout_sec, opt = _build_proxy_call_args(proxy, url, schema)
+        vhost, app, stream, url, retry_count, timeout_sec, opt = _build_proxy_call_args(proxy, url, url_params)
         mk_logger.log_info(
             f"[on_stream_not_found] 触发按需拉流 id={pid} {vhost}/{app}/{stream} url={url}"
         )
@@ -285,9 +288,69 @@ def on_http_access(parser: mk_loader.Parser, path: str, file_path: str, is_dir: 
     mk_loader.http_access_invoker_do(invoker, "", path, 60 * 60)
     return True
 
-def on_player_proxy_failed(url: str, media_tuple: mk_loader.MediaTuple , ex: mk_loader.SockException) -> bool:
+def on_player_proxy_failed(url: str, media_tuple: mk_loader.MediaTuple, ex: mk_loader.SockException) -> bool:
     mk_logger.log_info(f"on_player_proxy_failed: {url}, {media_tuple.shortUrl()}, {ex.what()}")
-    # 该事件在c++中也处理下
+
+    # 尝试多地址切换：根据当前失败的 url 查找对应代理，切换到下一个备用地址
+    try:
+        vhost  = media_tuple.vhost  if hasattr(media_tuple, 'vhost')  else '__defaultVhost__'
+        app    = media_tuple.app    if hasattr(media_tuple, 'app')    else ''
+        stream = media_tuple.stream if hasattr(media_tuple, 'stream') else ''
+
+        if not app or not stream:
+            return False
+
+        # 查询数据库
+        db.cursor.execute(
+            "SELECT * FROM pull_proxies WHERE vhost=? AND app=? AND stream=?",
+            (vhost, app, stream)
+        )
+        row = db.cursor.fetchone()
+        if not row:
+            return False
+        proxy = dict(row)
+        pid = proxy.get("id")
+        if not pid:
+            return False
+
+        proxy_urls = db.get_proxy_urls(int(pid))
+        if len(proxy_urls) <= 1:
+            # 只有一个地址，无法切换
+            return False
+
+        # 找到当前失败的地址索引
+        current_idx = None
+        for i, pu in enumerate(proxy_urls):
+            if pu.get("url", "") == url:
+                current_idx = i
+                break
+
+        if current_idx is None:
+            current_idx = 0
+
+        # 切换到下一个地址（循环）
+        next_idx = (current_idx + 1) % len(proxy_urls)
+        if next_idx == current_idx:
+            return False  # 只有一条有效地址
+
+        next_url_item = proxy_urls[next_idx]
+        next_url      = next_url_item.get("url", "")
+        next_params   = next_url_item.get("params", {})
+
+        if not next_url:
+            return False
+
+        mk_logger.log_info(
+            f"[on_player_proxy_failed] 切换备用地址 id={pid} {vhost}/{app}/{stream} "
+            f"[{current_idx}→{next_idx}] {url} → {next_url}"
+        )
+
+        mk_loader.update_stream_proxy(vhost, app, stream, next_url, next_params)
+        # 返回 True：Python 已接管处理，ZLM 不再默认处理
+        return True
+    except Exception as e:
+        mk_logger.log_warn(f"[on_player_proxy_failed] 多地址切换异常: {e}")
+
     return False
 
 # def on_exit():

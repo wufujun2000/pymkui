@@ -511,7 +511,7 @@ async def add_stream_proxy(request: Request):
         app = data.get("app")
         stream = data.get("stream")
 
-        # 多地址：urls=[{"url":..., "schema":...}, ...]
+        # 多地址：urls=[{"url":..., "params": {"schema":"hls","rtp_type":"0",...}}, ...]
         urls_raw = data.get("urls")
         if isinstance(urls_raw, str):
             try:
@@ -523,12 +523,19 @@ async def add_stream_proxy(request: Request):
         if not app or not stream or not urls_list:
             return {"code": -1, "msg": "app、stream、urls 参数不能为空"}
 
-        # 取第一条作为主地址
-        url = urls_list[0].get("url")
-        
-        custom_params = data.get("custom_params", "{}")
+        # 取第一条作为主地址及其地址级参数（schema、rtp_type 等）
+        first_item        = urls_list[0]
+        url               = first_item.get("url")
+        first_url_params  = first_item.get("params", {})
+        if not isinstance(first_url_params, dict):
+            try:
+                first_url_params = json.loads(first_url_params)
+            except Exception:
+                first_url_params = {}
+
+        custom_params   = data.get("custom_params", "{}")
         protocol_params = data.get("protocol_params", "{}")
-        remark = data.get("remark", "")
+        remark          = data.get("remark", "")
 
         # on_demand: 接受 bool / 0 / 1 / "0" / "1" / "true" / "false"
         raw_on_demand = data.get("on_demand", 0)
@@ -560,42 +567,43 @@ async def add_stream_proxy(request: Request):
                 return {"code": 0, "msg": "添加成功（按需模式，未立即拉流）", "data": {"id": proxy_id}}
             else:
                 return {"code": -1, "msg": "写入数据库失败，vhost/app/stream 组合可能已存在"}
-        
+
         # 普通/强制模式：调用 ZLMediaKit 的 addStreamProxy 接口
-        # 取第一条地址的 url 和 schema 传给 ZLM
-        first_schema = urls_list[0].get("schema", "") if urls_list else ""
+        # schema、rtp_type 等地址级参数从第一条地址的 params 取
         zlm_url = f"{get_zlm_base_url()}/index/api/addStreamProxy"
         zlm_params = {
             "vhost": vhost,
             "app": app,
             "stream": stream,
             "url": url,
-            "force": force,   # 强制添加模式：1=拉流失败也写入 ZLM
+            "force": force,
         }
-        if first_schema:
-            zlm_params["schema"] = first_schema
-        
-        # 添加自定义参数
+        # 将第一条地址的 params 透传给 ZLM（schema、rtp_type 等）
+        zlm_params.update({k: v for k, v in first_url_params.items() if v != '' and v is not None})
+
+        # 添加自定义参数（不含 schema/rtp_type，已在地址级 params 中）
         if custom_params:
             try:
                 custom_params_dict = json.loads(custom_params) if isinstance(custom_params, str) else custom_params
-                zlm_params.update(custom_params_dict)
-            except:
+                if isinstance(custom_params_dict, dict):
+                    zlm_params.update(custom_params_dict)
+            except Exception:
                 pass
-        
+
         # 添加转协议参数
         if protocol_params:
             try:
                 protocol_params_dict = json.loads(protocol_params) if isinstance(protocol_params, str) else protocol_params
-                zlm_params.update(protocol_params_dict)
-            except:
+                if isinstance(protocol_params_dict, dict):
+                    zlm_params.update(protocol_params_dict)
+            except Exception:
                 pass
+
         # 透传客户端 cookie
         response = await client.post(zlm_url, data=zlm_params, headers=get_forward_headers(request))
         result = response.json()
-        
+
         if result.get("code") == 0:
-            # 保存到数据库
             pid = db.add_pull_proxy({
                 "vhost": vhost,
                 "app": app,
@@ -609,7 +617,6 @@ async def add_stream_proxy(request: Request):
                 db.set_proxy_urls(pid, urls_list)
             return {"code": 0, "msg": "添加成功", "data": result.get("data")}
         elif force:
-            # 强制模式：ZLM 返回失败也强制写库
             pid = db.add_pull_proxy({
                 "vhost": vhost,
                 "app": app,
@@ -746,6 +753,98 @@ async def get_stream_proxy(id: int = Query(..., description="代理ID")):
         return {"code": -1, "msg": f"获取失败: {str(e)}"}
 
 @app.post(
+    "/index/pyapi/updateStreamProxy",
+    tags=["拉流代理"],
+    summary="更新拉流代理配置",
+)
+async def update_stream_proxy(request: Request):
+    """
+    更新拉流代理的配置（不重启 ZLM 拉流，仅更新数据库）。
+
+    参数：
+    - id: 数据库记录 ID（必选）
+    - urls: 多地址列表（[{"url":..., "params":{...}}, ...]，可选）
+    - remark: 备注（可选）
+    - vhost: 虚拟主机（可选，不建议修改）
+    - app: 应用名（可选，不建议修改）
+    - stream: 流ID（可选，不建议修改）
+    - on_demand: 按需模式（可选）
+    - custom_params: 自定义参数 JSON（可选）
+    - protocol_params: 转协议参数 JSON（可选）
+    """
+    try:
+        body_bytes = await request.body()
+        if not body_bytes:
+            return {"code": -1, "msg": "请求体为空"}
+        content_type = request.headers.get("content-type", "")
+        if "application/json" in content_type or not content_type:
+            try:
+                data = json.loads(body_bytes.decode("utf-8"))
+            except Exception:
+                data = {}
+        else:
+            parsed = urllib.parse.parse_qs(body_bytes.decode("utf-8"), keep_blank_values=True)
+            data = {k: v[0] if len(v) == 1 else v for k, v in parsed.items()}
+
+        if not isinstance(data, dict):
+            return {"code": -1, "msg": "参数格式错误"}
+
+        proxy_id = data.get("id")
+        if not proxy_id:
+            return {"code": -1, "msg": "id 参数不能为空"}
+        try:
+            proxy_id = int(proxy_id if not isinstance(proxy_id, list) else proxy_id[0])
+        except (ValueError, TypeError):
+            return {"code": -1, "msg": "id 格式错误，必须为整数"}
+
+        # 确认记录存在
+        existing = db.get_pull_proxy(proxy_id)
+        if not existing:
+            return {"code": -1, "msg": "代理不存在"}
+
+        # 构建更新字段（只更新传入的字段）
+        update_kwargs = {}
+        if "vhost" in data:
+            update_kwargs["vhost"] = data["vhost"] or "__defaultVhost__"
+        if "app" in data and data["app"]:
+            update_kwargs["app"] = data["app"]
+        if "stream" in data and data["stream"]:
+            update_kwargs["stream"] = data["stream"]
+        if "remark" in data:
+            update_kwargs["remark"] = data.get("remark", "")
+        if "custom_params" in data:
+            update_kwargs["custom_params"] = data["custom_params"] if isinstance(data["custom_params"], str) else json.dumps(data["custom_params"], ensure_ascii=False)
+        if "protocol_params" in data:
+            update_kwargs["protocol_params"] = data["protocol_params"] if isinstance(data["protocol_params"], str) else json.dumps(data["protocol_params"], ensure_ascii=False)
+        if "on_demand" in data:
+            raw_od = data["on_demand"]
+            if isinstance(raw_od, str):
+                update_kwargs["on_demand"] = 1 if raw_od.lower() in ("1", "true", "yes") else 0
+            else:
+                update_kwargs["on_demand"] = 1 if raw_od else 0
+
+        # 更新主表
+        if update_kwargs:
+            db.update_pull_proxy(proxy_id, **update_kwargs)
+
+        # 更新多地址列表（全量替换）
+        urls_raw = data.get("urls")
+        if urls_raw is not None:
+            if isinstance(urls_raw, str):
+                try:
+                    urls_raw = json.loads(urls_raw)
+                except Exception:
+                    urls_raw = []
+            urls_list = [u for u in (urls_raw or []) if isinstance(u, dict) and u.get("url")]
+            db.set_proxy_urls(proxy_id, urls_list)
+
+        return {"code": 0, "msg": "修改成功"}
+    except Exception as e:
+        mk_logger.log_warn(f"更新拉流代理失败: {e}")
+        return {"code": -1, "msg": f"修改失败: {str(e)}"}
+
+
+@app.post(
     "/index/pyapi/toggleStreamProxyMode",
     tags=["拉流代理"],
     summary="切换拉流代理模式（按需↔立即）",
@@ -799,25 +898,27 @@ async def toggle_stream_proxy_mode(request: Request):
 
         # 从多地址表取第一条地址
         proxy_urls = db.get_proxy_urls(proxy_id)
-        first_url_item = proxy_urls[0] if proxy_urls else {}
-        url    = first_url_item.get("url") or ""
-        schema = first_url_item.get("schema") or ""
+        first_url_item  = proxy_urls[0] if proxy_urls else {}
+        url             = first_url_item.get("url") or ""
+        url_params      = first_url_item.get("params") or {}  # 已由 get_proxy_urls 反序列化为 dict
 
         if current_on_demand == 1:
             # 按需 → 立即：调用 ZLM addStreamProxy（force=1）
             zlm_url = f"{get_zlm_base_url()}/index/api/addStreamProxy"
             zlm_params = {"vhost": vhost, "app": app, "stream": stream, "url": url, "force": 1}
-            if schema:
-                zlm_params["schema"] = schema
+            # 将地址级参数（schema、rtp_type 等）透传给 ZLM
+            zlm_params.update({k: v for k, v in url_params.items() if v != '' and v is not None})
             # 追加保存的自定义/协议参数
             try:
                 cp = json.loads(proxy.get("custom_params") or "{}")
-                zlm_params.update(cp)
+                if isinstance(cp, dict):
+                    zlm_params.update(cp)
             except Exception:
                 pass
             try:
                 pp = json.loads(proxy.get("protocol_params") or "{}")
-                zlm_params.update(pp)
+                if isinstance(pp, dict):
+                    zlm_params.update(pp)
             except Exception:
                 pass
             response = await client.post(zlm_url, data=zlm_params, headers=get_forward_headers(request))

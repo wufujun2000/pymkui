@@ -413,6 +413,10 @@ const Api = {
         return this.request('/index/pyapi/addStreamProxy', { body: data });
     },
 
+    async updateStreamProxy(data) {
+        return this.request('/index/pyapi/updateStreamProxy', { body: data });
+    },
+
     async zlmAddStreamProxy(data) {
         return this.request('/index/api/addStreamProxy', { body: data });
     },

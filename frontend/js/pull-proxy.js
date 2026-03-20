@@ -185,10 +185,14 @@ function _renderPullProxyPage() {
                 </td>
                 <td class="p-4">${statusHtml}</td>
                 <td class="p-4 text-white/60 text-sm">${createdAt}</td>
-                <td class="p-4 space-x-2">
+                <td class="p-4 space-x-2 whitespace-nowrap">
                     <button class="bg-blue-500/80 text-white px-3 py-1 rounded-lg text-sm font-semibold hover:shadow-neon transition-colors"
                         onclick="viewPullProxyDetail(${proxy.id})">
                         详情
+                    </button>
+                    <button class="bg-yellow-500/80 text-white px-3 py-1 rounded-lg text-sm font-semibold hover:shadow-neon transition-colors"
+                        onclick="editPullProxy(${proxy.id})">
+                        编辑
                     </button>
                     <button class="bg-green-600/80 text-white px-3 py-1 rounded-lg text-sm font-semibold hover:shadow-neon transition-colors"
                         onclick="navigateToStreams('${(proxy.vhost || '__defaultVhost__').replace(/'/g, "\\'")}', '${(proxy.app || '').replace(/'/g, "\\'")}', '${(proxy.stream || '').replace(/'/g, "\\'")}')">
@@ -262,9 +266,10 @@ function _calcPageRange(cur, total) {
  */
 function _renderProxyUrlCell(urls) {
     if (!Array.isArray(urls) || urls.length === 0) return '<span class="text-white/30">-</span>';
-    const first = urls[0];
-    const url   = first.url   || '';
-    const schema = first.schema || '';
+    const first  = urls[0];
+    const url    = first.url    || '';
+    const params = first.params || {};
+    const schema = params.schema || '';
     const schemaBadge = schema
         ? `<span class="inline-block px-1.5 py-0.5 rounded text-xs bg-blue-500/20 text-blue-300 mr-1 flex-shrink-0">${schema}</span>`
         : '';
@@ -294,17 +299,17 @@ async function viewPullProxyDetail(id) {
             let customParams = {};
             try { protocolParams = JSON.parse(proxy.protocol_params || '{}'); } catch (e) {}
             try { customParams = JSON.parse(proxy.custom_params || '{}'); } catch (e) {}
-            // 合并到 proxy 对象方便 getValue 使用
-            // schema / rtp_type / retry_count / timeout_sec 存在 custom_params 里，也提升到顶层
+            // retry_count / timeout_sec 仍在 custom_params 里，提升到顶层供 getValue 使用
             const mergedData = { ...proxy, ...protocolParams, ...customParams };
-            // 详情弹窗的自定义参数区域只显示真正"额外"的参数（排除已有专属字段的）
-            const knownKeys = new Set(['schema', 'rtp_type', 'retry_count', 'timeout_sec']);
+            // 自定义参数区域排除已有专属字段
+            const knownKeys = new Set(['retry_count', 'timeout_sec']);
             const extraCustomParams = Object.fromEntries(
                 Object.entries(customParams).filter(([k]) => !knownKeys.has(k))
             );
+            // urls 已含 params 字段（schema、rtp_type 等），直接透传
             const proxyUrls = Array.isArray(proxy.urls) && proxy.urls.length > 0
                 ? proxy.urls
-                : [{ url: proxy.url || '', schema: '' }];
+                : [{ url: '', params: {} }];
             showPullProxyModal('拉流代理详情（只读）', mergedData, {}, true, extraCustomParams, proxyUrls);
         } else {
             showToast('获取详情失败: ' + (result.msg || '未知错误'), 'error');
@@ -314,7 +319,33 @@ async function viewPullProxyDetail(id) {
     }
 }
 
-function showPullProxyModal(title, data, serverConfig = {}, readOnly = false, initialCustomParams = {}, initialUrls = []) {
+async function editPullProxy(id) {
+    try {
+        const result = await Api.getStreamProxy(id);
+        if (result.code === 0 && result.data) {
+            const proxy = result.data;
+            let protocolParams = {};
+            let customParams = {};
+            try { protocolParams = JSON.parse(proxy.protocol_params || '{}'); } catch (e) {}
+            try { customParams = JSON.parse(proxy.custom_params || '{}'); } catch (e) {}
+            const mergedData = { ...proxy, ...protocolParams, ...customParams };
+            const knownKeys = new Set(['retry_count', 'timeout_sec']);
+            const extraCustomParams = Object.fromEntries(
+                Object.entries(customParams).filter(([k]) => !knownKeys.has(k))
+            );
+            const proxyUrls = Array.isArray(proxy.urls) && proxy.urls.length > 0
+                ? proxy.urls
+                : [{ url: '', params: {} }];
+            showPullProxyModal('编辑拉流代理', mergedData, {}, false, extraCustomParams, proxyUrls, true);
+        } else {
+            showToast('获取代理信息失败: ' + (result.msg || '未知错误'), 'error');
+        }
+    } catch (e) {
+        showToast('获取代理信息失败: ' + e.message, 'error');
+    }
+}
+
+function showPullProxyModal(title, data, serverConfig = {}, readOnly = false, initialCustomParams = {}, initialUrls = [], isEdit = false) {
     // 确保旧弹窗已关闭
     const oldModal = document.getElementById('pullProxyModalWrapper');
     if (oldModal) oldModal.remove();
@@ -416,7 +447,7 @@ function showPullProxyModal(title, data, serverConfig = {}, readOnly = false, in
                                     class="${inputCls}">
                             </div>
                         </div>
-                        <div class="grid grid-cols-2 gap-4">
+                        <div class="grid grid-cols-2 gap-4 items-end">
                             <div>
                                 <label class="block text-white/80 text-sm font-semibold mb-1">
                                     按需拉流(on_demand)
@@ -428,31 +459,21 @@ function showPullProxyModal(title, data, serverConfig = {}, readOnly = false, in
                                     <option value="1" ${getValue('on_demand') == '1' || getValue('on_demand') === true || getValue('on_demand') === 1 ? 'selected' : ''}>开启（按需拉流）</option>
                                 </select>
                             </div>
-                            <div>
-                                <label class="block text-white/80 text-sm font-semibold mb-1">RTSP拉流方式(rtp_type)</label>
-                                <select id="rtpType" ${disabledAttr}
-                                    class="${inputCls}" style="color:white;">
-                                    <option value="" ${!getValue('rtp_type') ? 'selected' : ''}>默认（TCP）</option>
-                                    <option value="0" ${getValue('rtp_type') === '0' ? 'selected' : ''}>0 - TCP</option>
-                                    <option value="1" ${getValue('rtp_type') === '1' ? 'selected' : ''}>1 - UDP</option>
-                                    <option value="2" ${getValue('rtp_type') === '2' ? 'selected' : ''}>2 - 组播</option>
-                                </select>
-                            </div>
+                            ${(!readOnly && !isEdit) ? `
+                            <div class="flex items-center h-[42px]">
+                                <label class="flex items-center gap-3 cursor-pointer select-none">
+                                    <div class="relative flex-shrink-0">
+                                        <input type="checkbox" id="forceAdd" class="sr-only peer">
+                                        <div class="w-10 h-6 bg-white/10 rounded-full peer-checked:bg-orange-500/70 transition-colors"></div>
+                                        <div class="absolute top-1 left-1 w-4 h-4 bg-white/60 rounded-full peer-checked:translate-x-4 peer-checked:bg-white transition-all"></div>
+                                    </div>
+                                    <span class="text-white/80 text-sm font-semibold leading-tight">
+                                        强制添加模式
+                                        <span class="block text-white/40 font-normal text-xs mt-0.5">拉流失败也强制添加（force=1）</span>
+                                    </span>
+                                </label>
+                            </div>` : '<div></div>'}
                         </div>
-                        ${!readOnly ? `
-                        <div>
-                            <label class="flex items-center gap-3 cursor-pointer select-none">
-                                <div class="relative flex-shrink-0">
-                                    <input type="checkbox" id="forceAdd" class="sr-only peer">
-                                    <div class="w-10 h-6 bg-white/10 rounded-full peer-checked:bg-orange-500/70 transition-colors"></div>
-                                    <div class="absolute top-1 left-1 w-4 h-4 bg-white/60 rounded-full peer-checked:translate-x-4 peer-checked:bg-white transition-all"></div>
-                                </div>
-                                <span class="text-white/80 text-sm font-semibold leading-tight">
-                                    强制添加模式
-                                    <span class="block text-white/40 font-normal text-xs mt-0.5">拉流失败也强制写入 ZLMediaKit和数据库（force=1）</span>
-                                </span>
-                            </label>
-                        </div>` : ''}
                     </div>
                 </div>
 
@@ -694,7 +715,7 @@ function showPullProxyModal(title, data, serverConfig = {}, readOnly = false, in
                     </button>
                     <button type="submit"
                         class="bg-gradient-primary text-white px-6 py-2 rounded-lg font-semibold hover:shadow-neon transition-all duration-300">
-                        <i class="fa fa-save mr-2"></i>保存并添加代理
+                        <i class="fa fa-save mr-2"></i>${isEdit ? '保存修改' : '保存并添加代理'}
                     </button>
                 </div>` : `
                 <div class="flex justify-end pt-2">
@@ -724,8 +745,8 @@ function showPullProxyModal(title, data, serverConfig = {}, readOnly = false, in
     if (urlContainer) {
         const seedUrls = (initialUrls && initialUrls.length > 0)
             ? initialUrls
-            : [{ url: (data && data.url) || '', schema: '' }];
-        seedUrls.forEach((item, idx) => addUrlRow(item.url || '', item.schema || '', readOnly, idx === 0));
+            : [{ url: '', params: {} }];
+        seedUrls.forEach((item, idx) => addUrlRow(item.url || '', item.params || {}, readOnly, idx === 0));
     }
 
     // 填充初始自定义参数
@@ -746,7 +767,7 @@ function showPullProxyModal(title, data, serverConfig = {}, readOnly = false, in
     if (cancelBtn) cancelBtn.addEventListener('click', closeModal);
 
     if (!readOnly) {
-        document.getElementById('addUrlRowBtn')?.addEventListener('click', () => addUrlRow('', '', false, false));
+        document.getElementById('addUrlRowBtn')?.addEventListener('click', () => addUrlRow('', {}, false, false));
         document.getElementById('loadDefaultProtocolBtn').addEventListener('click', loadDefaultProtocolParams);
         document.getElementById('loadPresetProtocolBtn').addEventListener('click', loadPresetProtocolParams);
         document.getElementById('clearProtocolBtn').addEventListener('click', clearProtocolParams);
@@ -754,7 +775,11 @@ function showPullProxyModal(title, data, serverConfig = {}, readOnly = false, in
 
         document.getElementById('pullProxyForm').addEventListener('submit', async function (e) {
             e.preventDefault();
-            await submitAddPullProxy(closeModal);
+            if (isEdit) {
+                await submitEditPullProxy(closeModal);
+            } else {
+                await submitAddPullProxy(closeModal);
+            }
         });
     }
 }
@@ -762,18 +787,23 @@ function showPullProxyModal(title, data, serverConfig = {}, readOnly = false, in
 // ==================== 表单提交 ====================
 
 async function submitAddPullProxy(closeModal) {
-    // 收集多地址列表
+    // 收集多地址列表（url + params{schema, rtp_type}）
     const urlsList = [];
     document.querySelectorAll('#urlListContainer .url-row').forEach(row => {
-        const u = row.querySelector('.url-row-url')?.value.trim();
-        const s = row.querySelector('.url-row-schema')?.value || '';
-        if (u) urlsList.push({ url: u, schema: s });
+        const u        = row.querySelector('.url-row-url')?.value.trim();
+        const schema   = row.querySelector('.url-row-schema')?.value   || '';
+        const rtpType  = row.querySelector('.url-row-rtp-type')?.value || '';
+        if (u) {
+            const params = {};
+            if (schema)  params.schema   = schema;
+            if (rtpType) params.rtp_type = rtpType;
+            urlsList.push({ url: u, params });
+        }
     });
     if (urlsList.length === 0) {
         showToast('至少填写一个拉流地址', 'error');
         return;
     }
-    const url = urlsList[0].url;  // 主地址（第一条）
 
     const vhost   = document.getElementById('pullVhost').value.trim() || '__defaultVhost__';
     const app     = document.getElementById('pullApp').value.trim();
@@ -825,13 +855,11 @@ async function submitAddPullProxy(closeModal) {
     // 其他 ZLM 参数
     const retryCount  = document.getElementById('retryCount').value;
     const timeoutSec  = document.getElementById('timeoutSec').value;
-    const rtpType     = document.getElementById('rtpType').value;
     const onDemand    = document.getElementById('onDemand').value;  // "0" or "1"
     const forceAdd    = document.getElementById('forceAdd')?.checked ? 1 : 0;
     if (retryCount !== '') customParams['retry_count'] = retryCount;
     if (timeoutSec !== '') customParams['timeout_sec'] = timeoutSec;
-    if (rtpType    !== '') customParams['rtp_type']    = rtpType;
-    // schema 已在每条 url 的 schema 字段中，不再写入 customParams
+    // schema / rtp_type 已在每条地址的 params 字段中，不再写入 customParams
 
     const remark = (document.getElementById('pullRemark')?.value || '').trim();
 
@@ -874,6 +902,125 @@ async function submitAddPullProxy(closeModal) {
     }
 }
 
+// ==================== 编辑表单提交 ====================
+
+async function submitEditPullProxy(closeModal) {
+    const proxyId = parseInt(document.getElementById('proxyId')?.value || '0');
+    if (!proxyId) {
+        showToast('代理 ID 无效', 'error');
+        return;
+    }
+
+    // 收集多地址列表
+    const urlsList = [];
+    document.querySelectorAll('#urlListContainer .url-row').forEach(row => {
+        const u       = row.querySelector('.url-row-url')?.value.trim();
+        const schema  = row.querySelector('.url-row-schema')?.value   || '';
+        const rtpType = row.querySelector('.url-row-rtp-type')?.value || '';
+        if (u) {
+            const params = {};
+            if (schema)  params.schema   = schema;
+            if (rtpType) params.rtp_type = rtpType;
+            urlsList.push({ url: u, params });
+        }
+    });
+    if (urlsList.length === 0) {
+        showToast('至少填写一个拉流地址', 'error');
+        return;
+    }
+
+    const vhost  = document.getElementById('pullVhost').value.trim() || '__defaultVhost__';
+    const app    = document.getElementById('pullApp').value.trim();
+    const stream = document.getElementById('pullStream').value.trim();
+    if (!app || !stream) {
+        showToast('应用名、流ID 不能为空', 'error');
+        return;
+    }
+
+    // 收集转协议参数（非空才放入）
+    const protocolMap = {
+        enable_hls:        'enableHls',
+        enable_hls_fmp4:   'enableHlsFmp4',
+        enable_mp4:        'enableMp4',
+        enable_rtsp:       'enableRtsp',
+        enable_rtmp:       'enableRtmp',
+        enable_ts:         'enableTs',
+        enable_fmp4:       'enableFmp4',
+        enable_audio:      'enableAudio',
+        add_mute_audio:    'addMuteAudio',
+        auto_close:        'autoClose',
+        hls_demand:        'hlsDemand',
+        rtsp_demand:       'rtspDemand',
+        rtmp_demand:       'rtmpDemand',
+        ts_demand:         'tsDemand',
+        fmp4_demand:       'fmp4Demand',
+        mp4_as_player:     'mp4AsPlayer',
+        modify_stamp:      'modifyStamp',
+        paced_sender_ms:   'pacedSenderMs',
+        mp4_max_second:    'mp4MaxSecond',
+        mp4_save_path:     'mp4SavePath',
+        hls_save_path:     'hlsSavePath',
+    };
+    const protocolParams = {};
+    Object.entries(protocolMap).forEach(([apiKey, domId]) => {
+        const el = document.getElementById(domId);
+        if (el && el.value !== '') protocolParams[apiKey] = el.value;
+    });
+
+    // 自定义参数
+    const customParams = {};
+    document.querySelectorAll('#customParamsContainer .custom-param-row').forEach(row => {
+        const k = row.querySelector('.custom-param-key').value.trim();
+        const v = row.querySelector('.custom-param-value').value.trim();
+        if (k) customParams[k] = v;
+    });
+
+    const retryCount = document.getElementById('retryCount').value;
+    const timeoutSec = document.getElementById('timeoutSec').value;
+    const onDemand   = document.getElementById('onDemand').value;
+    if (retryCount !== '') customParams['retry_count'] = retryCount;
+    if (timeoutSec !== '') customParams['timeout_sec'] = timeoutSec;
+
+    const remark = (document.getElementById('pullRemark')?.value || '').trim();
+
+    const formData = {
+        id: proxyId,
+        urls: urlsList,
+        vhost,
+        app,
+        stream,
+        remark,
+        on_demand: onDemand,
+        protocol_params: JSON.stringify(protocolParams),
+        custom_params:   JSON.stringify(customParams),
+    };
+
+    const submitBtn = document.querySelector('#pullProxyForm button[type="submit"]');
+    const origText  = submitBtn ? submitBtn.innerHTML : '';
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="fa fa-spinner fa-spin mr-2"></i>保存中...';
+    }
+
+    try {
+        const result = await Api.updateStreamProxy(formData);
+        if (result.code === 0) {
+            showToast('修改成功', 'success');
+            closeModal();
+            loadPullProxyList();
+        } else {
+            showToast('修改失败: ' + (result.msg || '未知错误'), 'error');
+        }
+    } catch (error) {
+        showToast('修改失败: ' + error.message, 'error');
+    } finally {
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = origText;
+        }
+    }
+}
+
 // ==================== 参数辅助函数 ====================
 
 // ==================== 多地址行辅助 ====================
@@ -885,21 +1032,35 @@ async function submitAddPullProxy(closeModal) {
  * @param {boolean} readOnly - 是否只读
  * @param {boolean} isFirst  - 是否为第一条（第一条加"主"标记，不可删除）
  */
-function addUrlRow(urlVal = '', schemaVal = '', readOnly = false, isFirst = false) {
+function addUrlRow(urlVal = '', paramsVal = {}, readOnly = false, isFirst = false) {
     const container = document.getElementById('urlListContainer');
     if (!container) return;
+
+    if (typeof paramsVal === 'string') {
+        try { paramsVal = JSON.parse(paramsVal); } catch (e) { paramsVal = {}; }
+    }
+    const schemaVal  = paramsVal.schema   || '';
+    const rtpTypeVal = paramsVal.rtp_type != null ? String(paramsVal.rtp_type) : '';
 
     const disabledAttr = readOnly ? 'disabled' : '';
     const inputBase = readOnly
         ? 'bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white/60 cursor-not-allowed text-sm'
         : 'bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-primary text-sm';
-    const selectBase = inputBase + ' ' + (readOnly ? '' : 'cursor-pointer');
+    const selectBase = inputBase + (readOnly ? '' : ' cursor-pointer');
 
     const schemaOptions = ['', 'hls', 'ts', 'flv'].map(v => {
         const label = v === '' ? '自动识别' : v;
-        const sel = v === schemaVal ? 'selected' : '';
-        return `<option value="${v}" ${sel}>${label}</option>`;
+        return `<option value="${v}" ${v === schemaVal ? 'selected' : ''}>${label}</option>`;
     }).join('');
+
+    const rtpTypeOptions = [
+        ['', '默认（TCP）'],
+        ['0', '0 - TCP'],
+        ['1', '1 - UDP'],
+        ['2', '2 - 组播'],
+    ].map(([v, label]) =>
+        `<option value="${v}" ${v === rtpTypeVal ? 'selected' : ''}>${label}</option>`
+    ).join('');
 
     const row = document.createElement('div');
     row.className = 'url-row flex gap-2 items-center';
@@ -909,8 +1070,11 @@ function addUrlRow(urlVal = '', schemaVal = '', readOnly = false, isFirst = fals
             class="url-row-url flex-1 ${inputBase}"
             placeholder="拉流地址（rtsp/rtmp/hls/http-ts/http-flv/srt/webrtc）"
             value="${urlVal.replace(/"/g, '&quot;')}">
-        <select ${disabledAttr} class="url-row-schema w-32 flex-shrink-0 ${selectBase}" style="color:white;">
+        <select ${disabledAttr} class="url-row-schema w-28 flex-shrink-0 ${selectBase}" title="拉流协议(schema)" style="color:white;">
             ${schemaOptions}
+        </select>
+        <select ${disabledAttr} class="url-row-rtp-type w-32 flex-shrink-0 ${selectBase}" title="RTSP拉流方式(rtp_type)" style="color:white;">
+            ${rtpTypeOptions}
         </select>
         ${(!readOnly && !isFirst) ? `
         <button type="button"
@@ -1183,10 +1347,12 @@ async function startOfflineProxy(id) {
                 try { customParams   = JSON.parse(proxy.custom_params   || '{}'); } catch (e) {}
                 try { protocolParams = JSON.parse(proxy.protocol_params  || '{}'); } catch (e) {}
 
-                // 从多地址列表取第一条 url / schema
-                const firstUrl = Array.isArray(proxy.urls) && proxy.urls.length > 0 ? proxy.urls[0] : {};
-                const url    = firstUrl.url    || '';
-                const schema = firstUrl.schema || '';
+                // 从多地址列表取第一条 url / params（含 schema、rtp_type 等）
+                const firstUrl     = Array.isArray(proxy.urls) && proxy.urls.length > 0 ? proxy.urls[0] : {};
+                const url          = firstUrl.url    || '';
+                const urlParams    = (firstUrl.params && typeof firstUrl.params === 'object') ? firstUrl.params : {};
+                const schema       = urlParams.schema   || '';
+                const rtpType      = urlParams.rtp_type != null ? String(urlParams.rtp_type) : '';
 
                 if (!url) {
                     showToast('该代理无有效拉流地址', 'error');
@@ -1204,7 +1370,8 @@ async function startOfflineProxy(id) {
                     force:      1,
                     auto_close: onDemand,   // 按需=1（无人观看后自动关闭），立即=0
                 };
-                if (schema) params.schema = schema;
+                if (schema)  params.schema   = schema;
+                if (rtpType !== '') params.rtp_type = rtpType;
 
                 const result = await Api.zlmAddStreamProxy(params);
                 if (result.code === 0) {
