@@ -21,6 +21,8 @@ class Database:
         self.connection = sqlite3.connect(self.db_path, check_same_thread=False)
         self.connection.row_factory = sqlite3.Row
         self.cursor = self.connection.cursor()
+        # SQLite 默认不开启外键约束，每次连接后需手动启用
+        self.cursor.execute("PRAGMA foreign_keys = ON")
         
         self._create_tables()
     
@@ -32,7 +34,6 @@ class Database:
                 vhost TEXT NOT NULL DEFAULT '__defaultVhost__',
                 app TEXT NOT NULL,
                 stream TEXT NOT NULL,
-                url TEXT NOT NULL,
                 remark TEXT DEFAULT '',
                 custom_params TEXT,
                 protocol_params TEXT,
@@ -42,16 +43,19 @@ class Database:
                 UNIQUE(vhost, app, stream)
             )
         ''')
-        # 兼容已有数据库：若旧表缺少列则补上
-        for col_def in [
-            'ALTER TABLE pull_proxies ADD COLUMN on_demand INTEGER DEFAULT 0',
-            "ALTER TABLE pull_proxies ADD COLUMN remark TEXT DEFAULT ''",
-        ]:
-            try:
-                self.cursor.execute(col_def)
-                self.connection.commit()
-            except Exception:
-                pass  # 列已存在，忽略
+
+        # 多地址表：每条代理可配置多个拉流地址，priority 越小越优先
+        self.cursor.execute('''
+            CREATE TABLE IF NOT EXISTS pull_proxy_urls (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                proxy_id INTEGER NOT NULL,
+                url TEXT NOT NULL,
+                schema TEXT DEFAULT '',
+                priority INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT current_timestamp,
+                FOREIGN KEY(proxy_id) REFERENCES pull_proxies(id) ON DELETE CASCADE
+            )
+        ''')
         
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS push_tasks (
@@ -357,11 +361,10 @@ class Database:
         """Add a pull proxy"""
         try:
             self.cursor.execute(
-                'INSERT INTO pull_proxies (vhost, app, stream, url, remark, custom_params, protocol_params, on_demand) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                'INSERT INTO pull_proxies (vhost, app, stream, remark, custom_params, protocol_params, on_demand) VALUES (?, ?, ?, ?, ?, ?, ?)',
                 (proxy_data.get('vhost', '__defaultVhost__'),
                  proxy_data.get('app'),
                  proxy_data.get('stream'),
-                 proxy_data.get('url'),
                  proxy_data.get('remark', ''),
                  proxy_data.get('custom_params', '{}'),
                  proxy_data.get('protocol_params', '{}'),
@@ -404,7 +407,7 @@ class Database:
             values = []
             
             for key, value in kwargs.items():
-                if key in ['vhost', 'app', 'stream', 'url', 'remark', 'custom_params', 'protocol_params', 'on_demand']:
+                if key in ['vhost', 'app', 'stream', 'remark', 'custom_params', 'protocol_params', 'on_demand']:
                     set_clause.append(f"{key} = ?")
                     values.append(value)
             
@@ -432,3 +435,52 @@ class Database:
         except sqlite3.Error as e:
             print(f"Failed to delete pull proxy: {e}")
             return False
+
+    # ==================== 多地址管理 ====================
+
+    def get_proxy_urls(self, proxy_id: int) -> List[Dict[str, Any]]:
+        """获取某个代理的所有地址，按 priority 升序"""
+        try:
+            self.cursor.execute(
+                'SELECT * FROM pull_proxy_urls WHERE proxy_id = ? ORDER BY priority ASC, id ASC',
+                (proxy_id,)
+            )
+            rows = self.cursor.fetchall()
+            columns = [d[0] for d in self.cursor.description]
+            return [dict(zip(columns, row)) for row in rows]
+        except sqlite3.Error as e:
+            mk_logger.log_warn(f"Failed to get proxy urls: {e}")
+            return []
+
+    def set_proxy_urls(self, proxy_id: int, urls: List[Dict[str, Any]]) -> bool:
+        """
+        全量替换某个代理的地址列表。
+        urls 格式: [{"url": "...", "schema": "hls"}, ...]
+        """
+        try:
+            self.cursor.execute('DELETE FROM pull_proxy_urls WHERE proxy_id = ?', (proxy_id,))
+            for i, item in enumerate(urls):
+                self.cursor.execute(
+                    'INSERT INTO pull_proxy_urls (proxy_id, url, schema, priority) VALUES (?, ?, ?, ?)',
+                    (proxy_id, item.get('url', ''), item.get('schema', ''), i)
+                )
+            self.connection.commit()
+            return True
+        except sqlite3.Error as e:
+            mk_logger.log_warn(f"Failed to set proxy urls: {e}")
+            self.connection.rollback()
+            return False
+
+    def get_pull_proxy_with_urls(self, proxy_id: int) -> Optional[Dict[str, Any]]:
+        """获取代理详情，同时附带 urls 列表"""
+        proxy = self.get_pull_proxy(proxy_id)
+        if proxy:
+            proxy['urls'] = self.get_proxy_urls(proxy_id)
+        return proxy
+
+    def get_all_pull_proxies_with_urls(self) -> List[Dict[str, Any]]:
+        """获取所有代理，每条附带 urls 列表"""
+        proxies = self.get_all_pull_proxies()
+        for proxy in proxies:
+            proxy['urls'] = self.get_proxy_urls(proxy['id'])
+        return proxies

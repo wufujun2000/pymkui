@@ -136,14 +136,19 @@ def _restore_pull_proxies():
         vhost = proxy.get("vhost") or "__defaultVhost__"
         app   = proxy.get("app", "")
         stream = proxy.get("stream", "")
-        url   = proxy.get("url", "")
+        proxy_id = proxy.get("id")
+
+        # 从多地址表取第一条地址
+        proxy_urls = db.get_proxy_urls(proxy_id)
+        first_url  = proxy_urls[0] if proxy_urls else {}
+        url    = first_url.get("url", "")
+        schema = first_url.get("schema", "")
 
         if not app or not stream or not url:
-            mk_logger.log_warn(f"[restore_pull_proxies] 跳过无效记录 id={proxy.get('id')}")
+            mk_logger.log_warn(f"[restore_pull_proxies] 跳过无效记录 id={proxy_id}")
             continue
 
-        vhost, app, stream, url, retry_count, timeout_sec, opt = _build_proxy_call_args(proxy)
-        proxy_id = proxy.get("id")
+        vhost, app, stream, url, retry_count, timeout_sec, opt = _build_proxy_call_args(proxy, url, schema)
 
         def make_callback(pid, vhost, app, stream, url):
             def cb(err, key):
@@ -173,15 +178,15 @@ def _restore_pull_proxies():
     mk_logger.log_info(f"[restore_pull_proxies] 共恢复 {count} 个拉流代理")
 
 
-def _build_proxy_call_args(proxy: dict) -> tuple:
+def _build_proxy_call_args(proxy: dict, url: str = "", schema: str = "") -> tuple:
     """
     从数据库代理记录中解析出 add_stream_proxy 所需的参数。
+    url/schema 由调用方从 pull_proxy_urls 表取得后传入。
     返回 (vhost, app, stream, url, retry_count, timeout_sec, opt)
     """
     vhost  = proxy.get("vhost")  or "__defaultVhost__"
     app    = proxy.get("app",    "")
     stream = proxy.get("stream", "")
-    url    = proxy.get("url",    "")
 
     custom_params_dict = {}
     raw_custom = proxy.get("custom_params") or "{}"
@@ -204,6 +209,8 @@ def _build_proxy_call_args(proxy: dict) -> tuple:
     except Exception as e:
         mk_logger.log_warn(f"[build_proxy_call_args] 解析 protocol_params 失败 id={proxy.get('id')}: {e}")
     opt.update(custom_params_dict)
+    if schema:
+        opt["schema"] = schema
 
     return vhost, app, stream, url, retry_count, timeout_sec, opt
 
@@ -230,7 +237,15 @@ def on_stream_not_found(args: dict, sender: dict, invoker) -> bool:
     if proxy:
         # 找到按需拉流代理，启动拉流，让播放器等待流上线
         pid = proxy.get("id")
-        vhost, app, stream, url, retry_count, timeout_sec, opt = _build_proxy_call_args(proxy)
+        # 从多地址表取第一条地址
+        proxy_urls = db.get_proxy_urls(pid)
+        first_url  = proxy_urls[0] if proxy_urls else {}
+        url    = first_url.get("url", "")
+        schema = first_url.get("schema", "")
+        if not url:
+            mk_logger.log_warn(f"[on_stream_not_found] 按需代理无有效地址 id={pid}")
+            return False
+        vhost, app, stream, url, retry_count, timeout_sec, opt = _build_proxy_call_args(proxy, url, schema)
         mk_logger.log_info(
             f"[on_stream_not_found] 触发按需拉流 id={pid} {vhost}/{app}/{stream} url={url}"
         )
@@ -270,6 +285,10 @@ def on_http_access(parser: mk_loader.Parser, path: str, file_path: str, is_dir: 
     mk_loader.http_access_invoker_do(invoker, "", path, 60 * 60)
     return True
 
+def on_player_proxy_failed(url: str, media_tuple: mk_loader.MediaTuple , ex: mk_loader.SockException) -> bool:
+    mk_logger.log_info(f"on_player_proxy_failed: {url}, {media_tuple.shortUrl()}, {ex.what()}")
+    # 该事件在c++中也处理下
+    return False
 
 # def on_exit():
 #     mk_logger.log_info("on_exit")
@@ -302,10 +321,6 @@ def on_http_access(parser: mk_loader.Parser, path: str, file_path: str, is_dir: 
 #     # 该事件在c++中也处理下
 #     return False
 
-# def on_player_proxy_failed(url: str, media_tuple: mk_loader.MediaTuple , ex: mk_loader.SockException) -> bool:
-#     mk_logger.log_info(f"on_player_proxy_failed: {url}, {media_tuple.shortUrl()}, {ex.what()}")
-#     # 该事件在c++中也处理下
-#     return False
 
 # def on_record_mp4(info: dict) -> bool:
 #     mk_logger.log_info(f"on_record_mp4, info: {info}")
