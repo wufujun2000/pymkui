@@ -921,7 +921,15 @@ async def toggle_stream_proxy_mode(request: Request):
                     zlm_params.update(pp)
             except Exception:
                 pass
-            response = await client.post(zlm_url, data=zlm_params, headers=get_forward_headers(request))
+            try:
+                response = await client.post(zlm_url, data=zlm_params, headers=get_forward_headers(request))
+            except (httpx.ConnectError, httpx.ConnectTimeout) as e:
+                zlm_base = get_zlm_base_url()
+                mk_logger.log_warn(f"toggle_stream_proxy_mode | 无法连接 ZLMediaKit ({zlm_base}): {e}")
+                return {"code": -1, "msg": f"无法连接 ZLMediaKit（{zlm_base}），请确认 ZLM 已启动并端口可访问"}
+            except httpx.TimeoutException as e:
+                mk_logger.log_warn(f"toggle_stream_proxy_mode | 连接 ZLMediaKit 超时: {e}")
+                return {"code": -1, "msg": "连接 ZLMediaKit 超时，请检查网络或 ZLM 负载"}
             result = response.json()
             if result.get("code") != 0:
                 return {"code": -1, "msg": f"ZLM 添加失败: {result.get('msg', '未知错误')}"}
@@ -941,11 +949,13 @@ async def toggle_stream_proxy_mode(request: Request):
                     mk_logger.log_warn(
                         f"ZLM delStreamProxy 返回非 0: {zlm_result.get('msg')}，key={key}"
                     )
+            except (httpx.ConnectError, httpx.ConnectTimeout, httpx.TimeoutException) as e:
+                mk_logger.log_warn(f"调用 ZLM delStreamProxy 连接失败（忽略，继续写库）: {e}，key={key}")
             except Exception as e:
                 mk_logger.log_warn(f"调用 ZLM delStreamProxy 失败（忽略）: {e}，key={key}")
             db.update_pull_proxy(proxy_id, on_demand=1)
             return {"code": 0, "msg": "已切换为按需模式", "data": {"on_demand": 1}}
 
     except Exception as e:
-        mk_logger.log_warn(f"切换拉流代理模式失败: {e}")
+        mk_logger.log_warn(f"toggle_stream_proxy_mode | 切换拉流代理模式失败: {e}")
         return {"code": -1, "msg": f"切换失败: {str(e)}"}
